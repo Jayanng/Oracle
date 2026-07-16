@@ -12,18 +12,49 @@ Match **IDs stay on the backend** only. The UI shows **team names + date + statu
 | **TheSportsDB** | Free key `3` | League **4429** (FIFA World Cup) | Limited event detail | Good for **2022** history: `eventsseason.php?id=4429&s=2022` |
 | **openfootball** (GitHub JSON) | Free static files | 2022 full | Goals in JSON | Historical only — not live |
 
+## API-Football base URL (important)
+
+Use the **official** host from the [WC 2026 guide](https://www.api-football.com/news/post/fifa-world-cup-2026-guide-to-using-data-with-api-sports):
+
+```bash
+# CORRECT
+SPORTS_API_BASE=https://v3.football.api-sports.io
+
+# Auth (every request)
+# Header: x-apisports-key: YOUR_KEY
+
+# NOT the RapidAPI host unless you bought via RapidAPI:
+# https://api-football-v1.p.rapidapi.com/v3  (+ x-rapidapi-host header)
+```
+
+| Param | Value |
+|-------|--------|
+| `league` | `1` (World Cup) |
+| `season` | `2026` schedule/events (needs paid plan) |
+| `season` | `2022` works on **Free** plan (64 matches + events) |
+
+Free plan error if you request 2026:
+
+```text
+Free plans do not have access to this season, try from 2022 to 2024.
+```
+
 ## What this repo uses
 
 | Env | Purpose |
 |-----|---------|
-| `SPORTS_PROVIDER=worldcup26` (default) | Free WC 2026 schedule + finished match scorers from `worldcup26.ir` |
-| `SPORTS_PROVIDER=api-football` + `SPORTS_API_KEY` | Production-grade fixtures/events |
-| `SPORTS_PROVIDER=hybrid` | Prefer API-Football when key set, else worldcup26 |
+| `SPORTS_API_BASE` | **`https://v3.football.api-sports.io`** |
+| `SPORTS_API_KEY` | Dashboard key → header `x-apisports-key` |
+| `SPORTS_LEAGUE_ID=1` | FIFA World Cup |
+| `SPORTS_SEASON=2022` | Free-plan real events (use `2026` after upgrade) |
+| `SPORTS_PROVIDER=api-football` | Direct API-Football |
+| `SPORTS_PROVIDER=hybrid` | API-Football, fall back to worldcup26 if plan blocks |
+| `SPORTS_PROVIDER=worldcup26` | Free 2026 schedule only (no official live events) |
 
 Backend maps:
 
-- Display: `Mexico vs South Africa · Jun 11`
-- Internal on-chain `matchId`: numeric fixture id (never shown in UI)
+- Display: `Qatar vs Ecuador`
+- Internal on-chain `matchId`: API-Football `fixture.id` (never shown in UI)
 
 ## Past tournaments (history)
 

@@ -292,6 +292,17 @@ app.post("/chat", async (req, res) => {
       ms: number;
     }> = [];
 
+    // Simple greetings — never call chain tools
+    if (/^(hi|hello|hey|yo|sup)\b/i.test(lastUser.trim())) {
+      return res.json({
+        answer:
+          "Hello! Ask about a World Cup fixture by **team names** — e.g. *latest event for Qatar vs Ecuador*, *list fixtures*, or *premium stats for England vs Iran*.",
+        trace: [],
+        mode: "greeting",
+        llm: llmProvider,
+      });
+    }
+
     const routed = regexRoute(lastUser);
     const useDet =
       !llm ||

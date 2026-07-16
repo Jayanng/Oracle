@@ -13,8 +13,8 @@ type TraceItem = {
   ms?: number;
 };
 
-const AGENT_URL =
-  process.env.NEXT_PUBLIC_AGENT_URL || "http://localhost:4020";
+/** Same-origin proxy — works in Codespaces (do not call localhost:4020 from browser) */
+const CHAT_URL = "/api/chat";
 
 function AgentInner() {
   const params = useSearchParams();
@@ -25,7 +25,7 @@ function AgentInner() {
     {
       role: "assistant",
       content:
-        "Hi — I'm **CupAgent**. Ask by **team names** (e.g. *latest event for Australia vs Turkey*). I never need you to type match IDs. Powered by Groq when `GROQ_API_KEY` is set.",
+        "Hi — I'm **CupAgent**. Ask by **team names** (e.g. *latest event for Qatar vs Ecuador*). I never need you to type match IDs. Powered by Groq when configured.",
     },
   ]);
   const [input, setInput] = useState("");
@@ -63,7 +63,7 @@ function AgentInner() {
     setInput("");
     setLoading(true);
     try {
-      const r = await fetch(`${AGENT_URL}/chat`, {
+      const r = await fetch(CHAT_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -71,7 +71,7 @@ function AgentInner() {
         }),
       });
       const data = await r.json();
-      if (!r.ok) throw new Error(data.error || "chat failed");
+      if (!r.ok) throw new Error(data.error || data.hint || "chat failed");
       setMessages((m) => [
         ...m,
         { role: "assistant", content: data.answer || "(empty)" },
@@ -84,7 +84,7 @@ function AgentInner() {
         ...m,
         {
           role: "assistant",
-          content: `Could not reach agent at \`${AGENT_URL}\`. (${e instanceof Error ? e.message : e})`,
+          content: `Could not reach agent via \`${CHAT_URL}\`. Is the agent running on :4020? (${e instanceof Error ? e.message : e})`,
         },
       ]);
     } finally {

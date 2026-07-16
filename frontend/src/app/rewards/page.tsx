@@ -18,8 +18,9 @@ import {
 } from "@/lib/contracts";
 import { shortAddr } from "@/lib/utils";
 
-const MATCH = Number(process.env.NEXT_PUBLIC_FIXTURE_ID || "2026001");
-const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || "http://localhost:4020";
+// Internal default WC 2022 opener (Qatar vs Ecuador) — not shown as "match id" in UI
+const MATCH = 855736;
+const AGENT_URL = "/api/chat";
 const SEPOLIA_DOMAIN = 0; // Ethereum Sepolia CCTP domain
 
 type Step = "idle" | "pending" | "done" | "error" | "sim";
@@ -140,10 +141,18 @@ export default function RewardsPage() {
 
   async function x402Demo() {
     try {
-      const r = await fetch(`${AGENT_URL}/x402-demo`, {
+      // Use chat proxy path for premium stats via agent tool language
+      const r = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ matchId: MATCH }),
+        body: JSON.stringify({
+          messages: [
+            {
+              role: "user",
+              content: "Get premium stats for Qatar vs Ecuador",
+            },
+          ],
+        }),
       });
       const data = await r.json();
       setX402Log(data);

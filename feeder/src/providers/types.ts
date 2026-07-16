@@ -7,7 +7,10 @@ export type Fixture = {
   away: string;
   homeFlag?: string;
   awayFlag?: string;
+  /** ISO-8601 UTC instant */
   kickoffUtc?: string;
+  /** Human label e.g. "19 Jul 2026 · 15:00 UTC" */
+  kickoffUtcLabel?: string;
   status: FixtureStatus;
   scoreHome?: number | null;
   scoreAway?: number | null;

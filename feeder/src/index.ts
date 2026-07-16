@@ -7,6 +7,7 @@ import pRetry from "p-retry";
 import pino from "pino";
 import { getClients, ORACLE_ABI } from "./chain.js";
 import { getSportsProvider, type Fixture } from "./providers/index.js";
+import { sortFixturesTournamentDesc } from "./providers/sort.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, "../../.env") });
@@ -70,23 +71,43 @@ async function tickFixture(fx: Fixture) {
   }
 }
 
-/** Public fixture list for UI — no internal matchId field name emphasized */
+/** Public fixture list for UI — tournament order: Final → group stage first matchday */
 function publicFixtures() {
-  return fixturesCache.map((f) => ({
-    id: f.matchId, // kept for API consumers; UI should not display
+  return sortFixturesTournamentDesc(fixturesCache).map((f) => ({
+    id: f.matchId, // backend only; UI shows label/teams
     label: `${f.home} vs ${f.away}`,
     home: f.home,
     away: f.away,
     homeFlag: f.homeFlag,
     awayFlag: f.awayFlag,
     kickoffUtc: f.kickoffUtc,
+    kickoffUtcLabel: f.kickoffUtcLabel || f.kickoffUtc,
     status: f.status,
     scoreHome: f.scoreHome,
     scoreAway: f.scoreAway,
     group: f.group,
     stage: f.stage,
+    stageLabel: stageLabel(f),
     source: f.source,
   }));
+}
+
+function stageLabel(f: Fixture): string {
+  const s = (f.stage || "").toLowerCase();
+  if (s === "final") return "Final";
+  if (s === "third") return "3rd place";
+  if (s === "sf") return "Semi-final";
+  if (s === "qf") return "Quarter-final";
+  if (s === "r16") return "Round of 16";
+  if (s === "r32") return "Round of 32";
+  if (s === "group") {
+    const id = f.matchId;
+    let md = 1;
+    if (id >= 25 && id <= 48) md = 2;
+    if (id >= 49 && id <= 72) md = 3;
+    return `Group ${f.group || "?"} · MD${md}`;
+  }
+  return f.stage || f.group || "";
 }
 
 async function loop() {

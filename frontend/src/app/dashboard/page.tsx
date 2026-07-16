@@ -188,8 +188,11 @@ export default function DashboardPage() {
                     </span>
                   </div>
                   <div className="mt-0.5 text-[10px] text-ink-muted">
-                    {fx.group ? `Group ${fx.group}` : fx.stage || ""}{" "}
-                    {fx.kickoffUtc ? `· ${fx.kickoffUtc}` : ""}
+                    {fx.stageLabel ||
+                      (fx.group ? `Group ${fx.group}` : fx.stage || "")}
+                    {fx.kickoffUtcLabel || fx.kickoffUtc
+                      ? ` · ${fx.kickoffUtcLabel || fx.kickoffUtc}`
+                      : ""}
                   </div>
                 </button>
               </li>
