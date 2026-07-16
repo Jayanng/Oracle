@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Bot, Send, Wrench, CreditCard } from "lucide-react";
+import { fetchFixtures, type PublicFixture } from "@/lib/fixtures";
 
 type Msg = { role: "user" | "assistant"; content: string };
 type TraceItem = {
@@ -17,12 +18,14 @@ const AGENT_URL =
 
 function AgentInner() {
   const params = useSearchParams();
-  const matchId = Number(params.get("matchId") || process.env.NEXT_PUBLIC_FIXTURE_ID || "2026001");
+  const q = params.get("q") || "";
+  const [focus, setFocus] = useState(q);
+  const [fixtures, setFixtures] = useState<PublicFixture[]>([]);
   const [messages, setMessages] = useState<Msg[]>([
     {
       role: "assistant",
       content:
-        "Hi — I'm **CupAgent**. I read CupEventOracle on Injective, buy premium stats via **x402**, and can settle prediction markets. Try a chip below.",
+        "Hi — I'm **CupAgent**. Ask by **team names** (e.g. *latest event for Australia vs Turkey*). I never need you to type match IDs. Powered by Groq when `GROQ_API_KEY` is set.",
     },
   ]);
   const [input, setInput] = useState("");
@@ -30,11 +33,23 @@ function AgentInner() {
   const [trace, setTrace] = useState<TraceItem[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    fetchFixtures().then(setFixtures);
+  }, []);
+
+  useEffect(() => {
+    if (q) setFocus(q);
+  }, [q]);
+
   const chips = [
-    `What was the latest event in match ${matchId}?`,
-    `Get premium stats for match ${matchId}`,
-    `Settle the prediction market for match ${matchId}`,
-    `Show me all goals in match ${matchId}`,
+    focus
+      ? `What was the latest event for ${focus}?`
+      : "List World Cup fixtures",
+    focus
+      ? `Get premium stats for ${focus}`
+      : "Show me finished matches",
+    focus ? `Show me all events for ${focus}` : "Latest live match events",
+    "List fixtures that are live",
   ];
 
   useEffect(() => {
@@ -52,9 +67,7 @@ function AgentInner() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: next
-            .filter((m) => m.role === "user" || m.role === "assistant")
-            .map((m) => ({ role: m.role, content: m.content })),
+          messages: next.map((m) => ({ role: m.role, content: m.content })),
         }),
       });
       const data = await r.json();
@@ -71,7 +84,7 @@ function AgentInner() {
         ...m,
         {
           role: "assistant",
-          content: `Could not reach agent at \`${AGENT_URL}\`. Start it with \`npm run dev:agent\`. (${e instanceof Error ? e.message : e})`,
+          content: `Could not reach agent at \`${AGENT_URL}\`. (${e instanceof Error ? e.message : e})`,
         },
       ]);
     } finally {
@@ -89,15 +102,32 @@ function AgentInner() {
           <div>
             <div className="font-display font-semibold">CupAgent</div>
             <div className="text-xs text-ink-muted">
-              🟢 Online · MCP tools · gpt-4o-mini / deterministic
+              🟢 Online · MCP tools · Groq / deterministic
             </div>
           </div>
         </div>
 
         <div className="border-b border-ink-border px-4 py-2">
           <div className="text-xs text-ink-muted">
-            Focused on match <span className="text-cyan-accent">#{matchId}</span>
+            Focus:{" "}
+            <span className="text-cyan-accent">
+              {focus || "any fixture (use team names)"}
+            </span>
           </div>
+          {fixtures.length > 0 && (
+            <select
+              className="mt-2 w-full rounded-lg border border-ink-border bg-ink px-2 py-1.5 text-xs"
+              value={focus}
+              onChange={(e) => setFocus(e.target.value)}
+            >
+              <option value="">Select fixture (optional)</option>
+              {fixtures.slice(0, 80).map((f) => (
+                <option key={f.label} value={f.label}>
+                  {f.label} · {f.status}
+                </option>
+              ))}
+            </select>
+          )}
           <div className="mt-2 flex flex-wrap gap-2">
             {chips.map((c) => (
               <button
@@ -151,7 +181,7 @@ function AgentInner() {
               }
             }}
             rows={1}
-            placeholder="Ask about on-chain match events…"
+            placeholder='e.g. "latest event for Australia vs Turkey"'
             className="flex-1 resize-none rounded-lg border border-ink-border bg-ink px-3 py-2 text-sm outline-none focus:border-cyan-accent"
           />
           <button type="submit" className="btn-primary px-3" disabled={loading}>
@@ -160,7 +190,6 @@ function AgentInner() {
         </form>
       </div>
 
-      {/* Action log */}
       <aside className="flex w-full flex-col rounded-xl border border-ink-border bg-ink-card lg:w-[320px]">
         <div className="border-b border-ink-border px-4 py-3 font-display text-sm font-semibold">
           Agent Action Log
@@ -190,13 +219,12 @@ function AgentInner() {
                 )}
               </div>
               <pre className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap break-all text-[10px] text-ink-muted">
-                {JSON.stringify({ args: t.args, result: summarize(t.result) }, null, 2)}
+                {JSON.stringify(
+                  { args: t.args, result: summarize(t.result) },
+                  null,
+                  2
+                )}
               </pre>
-              {t.tool === "get_premium_stats" && (
-                <div className="mt-1 text-[10px] text-emerald-400">
-                  💳 x402: 402 → signed Payment → 200
-                </div>
-              )}
             </div>
           ))}
         </div>
@@ -207,14 +235,18 @@ function AgentInner() {
 
 function summarize(r: unknown) {
   if (r && typeof r === "object" && "_x402" in (r as object)) {
-    const o = r as { _x402?: unknown; xg?: unknown; narrative?: string };
-    return { xg: o.xg, narrative: o.narrative, _x402: o._x402 };
+    const o = r as { _x402?: unknown; xg?: unknown; narrative?: string; _fixture?: string };
+    return { fixture: o._fixture, xg: o.xg, narrative: o.narrative, _x402: o._x402 };
+  }
+  if (r && typeof r === "object" && "_fixture" in (r as object)) {
+    const o = r as Record<string, unknown>;
+    const { matchId: _m, ...rest } = o;
+    return rest;
   }
   return r;
 }
 
 function MessageBody({ text }: { text: string }) {
-  // minimal markdown: **bold**, `code`, newlines
   const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`|\n)/g);
   return (
     <span className="whitespace-pre-wrap">
@@ -224,7 +256,10 @@ function MessageBody({ text }: { text: string }) {
           return <strong key={i}>{p.slice(2, -2)}</strong>;
         if (p.startsWith("`") && p.endsWith("`"))
           return (
-            <code key={i} className="rounded bg-black/30 px-1 font-mono text-[12px]">
+            <code
+              key={i}
+              className="rounded bg-black/30 px-1 font-mono text-[12px]"
+            >
               {p.slice(1, -1)}
             </code>
           );

@@ -2,37 +2,30 @@ import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
 import express from "express";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: path.resolve(__dirname, "../../.env") });
-dotenv.config(); // local override
 import cors from "cors";
-import axios from "axios";
 import pRetry from "p-retry";
 import pino from "pino";
 import { getClients, ORACLE_ABI } from "./chain.js";
-import { DEMO_SCRIPT, runSimulator } from "./simulator.js";
+import { getSportsProvider, type Fixture } from "./providers/index.js";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: path.resolve(__dirname, "../../.env") });
+dotenv.config();
 
 const log = pino({
-  transport: process.env.NODE_ENV === "production" ? undefined : { target: "pino-pretty" },
+  transport:
+    process.env.NODE_ENV === "production"
+      ? undefined
+      : { target: "pino-pretty" },
 });
 
-const mode = process.env.FEEDER_MODE || "simulator";
-const fixtureId = Number(process.env.FIXTURE_ID || "2026001");
+const provider = getSportsProvider();
 const pushed = new Set<string>();
 let lastPushAt = 0;
 let status: "idle" | "running" | "error" = "idle";
 let lastError: string | null = null;
 const recentHashes: string[] = [];
-
-type ApiEvent = {
-  id?: string;
-  time: { elapsed: number };
-  type: string;
-  detail: string;
-  team: { name: string };
-  player?: { name: string };
-};
+let fixturesCache: Fixture[] = [];
 
 async function pushEvent(
   matchId: bigint,
@@ -56,149 +49,138 @@ async function pushEvent(
   lastPushAt = Date.now();
   recentHashes.unshift(hash);
   if (recentHashes.length > 20) recentHashes.pop();
-  log.info({ hash, type, minute }, "event pushed");
+  log.info({ hash, type, minute, matchId: matchId.toString() }, "event pushed");
   return hash;
 }
 
-async function fetchLiveEvents(id: number): Promise<ApiEvent[]> {
-  const API = process.env.SPORTS_API_BASE || "https://v3.football.api-sports.io";
-  const KEY = process.env.SPORTS_API_KEY;
-  if (!KEY) throw new Error("SPORTS_API_KEY required in live mode");
-  const { data } = await axios.get(`${API}/fixtures/events`, {
-    params: { fixture: id },
-    headers: { "x-apisports-key": KEY },
-  });
-  return data.response ?? [];
-}
-
-async function fetchFixtureStatus(id: number) {
-  const API = process.env.SPORTS_API_BASE || "https://v3.football.api-sports.io";
-  const KEY = process.env.SPORTS_API_KEY!;
-  const { data } = await axios.get(`${API}/fixtures`, {
-    params: { id },
-    headers: { "x-apisports-key": KEY },
-  });
-  return data.response?.[0];
-}
-
-async function tickLive(id: number) {
-  const events = await fetchLiveEvents(id);
+async function tickFixture(fx: Fixture) {
+  // Only pull events for live or finished (catch-up)
+  if (fx.status !== "LIVE" && fx.status !== "HT" && fx.status !== "FT") return;
+  const events = await provider.getEvents(fx.matchId);
   for (const e of events) {
-    const uid = `${id}:${e.time.elapsed}:${e.type}:${e.team.name}:${e.player?.name ?? ""}`;
+    const uid = `${fx.matchId}:${e.uid}`;
     if (pushed.has(uid)) continue;
-    await pushEvent(BigInt(id), e.time.elapsed, e.type.toLowerCase(), {
-      team: e.team.name,
-      player: e.player?.name,
-      detail: e.detail,
+    // Do not overwrite final { home: score, away: score } with team names
+    await pushEvent(BigInt(fx.matchId), e.minute, e.type, {
+      homeTeam: fx.home,
+      awayTeam: fx.away,
+      ...e.details,
     });
     pushed.add(uid);
   }
-  const fx = await fetchFixtureStatus(id);
-  if (fx?.fixture?.status?.short === "FT") {
-    const uid = `${id}:FT`;
-    if (!pushed.has(uid)) {
-      await pushEvent(BigInt(id), 90, "final", {
-        home: fx.goals.home,
-        away: fx.goals.away,
-      });
-      pushed.add(uid);
-    }
-  }
 }
 
-async function runLiveLoop() {
+/** Public fixture list for UI — no internal matchId field name emphasized */
+function publicFixtures() {
+  return fixturesCache.map((f) => ({
+    id: f.matchId, // kept for API consumers; UI should not display
+    label: `${f.home} vs ${f.away}`,
+    home: f.home,
+    away: f.away,
+    homeFlag: f.homeFlag,
+    awayFlag: f.awayFlag,
+    kickoffUtc: f.kickoffUtc,
+    status: f.status,
+    scoreHome: f.scoreHome,
+    scoreAway: f.scoreAway,
+    group: f.group,
+    stage: f.stage,
+    source: f.source,
+  }));
+}
+
+async function loop() {
   status = "running";
-  log.info({ fixtureId, mode: "live" }, "live feeder started");
+  log.info({ provider: provider.name }, "feeder started (real fixtures)");
   while (true) {
     try {
-      await tickLive(fixtureId);
+      fixturesCache = await provider.listFixtures();
+      const active = fixturesCache.filter((f) =>
+        ["LIVE", "HT", "FT"].includes(f.status)
+      );
+      // Prefer live first, then recent FT for catch-up (limit FT batch)
+      const live = active.filter((f) => f.status === "LIVE" || f.status === "HT");
+      const ft = active
+        .filter((f) => f.status === "FT")
+        .slice(0, Number(process.env.FEEDER_FT_BATCH || "8"));
+      const work = [...live, ...ft];
+      if (work.length === 0) {
+        log.info(
+          { total: fixturesCache.length },
+          "no live/FT fixtures yet — idle poll"
+        );
+      }
+      for (const fx of work) {
+        try {
+          await tickFixture(fx);
+        } catch (e) {
+          log.error({ err: e, match: fx.home + " vs " + fx.away }, "tick failed");
+        }
+      }
       lastError = null;
     } catch (e) {
       lastError = e instanceof Error ? e.message : String(e);
-      log.error(e);
       status = "error";
+      log.error(e);
     }
-    await new Promise((r) => setTimeout(r, 45_000));
+    await new Promise((r) =>
+      setTimeout(r, Number(process.env.FEEDER_POLL_MS || "45000"))
+    );
   }
 }
 
-async function runSimOnce() {
-  const { wallet, pub, oracle } = getClients();
-  if (!oracle) {
-    log.warn("ORACLE_ADDRESS not set — simulator will only log offline");
-    status = "running";
-    for (const step of DEMO_SCRIPT) {
-      log.info({ step }, "offline sim (no oracle)");
-      lastPushAt = Date.now();
-      await new Promise((r) => setTimeout(r, 5_000));
-    }
-    return;
-  }
-  status = "running";
-  log.info({ fixtureId, oracle, mode: "simulator" }, "simulator feeder started");
-  await runSimulator({
-    wallet,
-    pub,
-    oracle,
-    matchId: BigInt(fixtureId),
-    intervalMs: Number(process.env.SIM_INTERVAL_MS || "5000"),
-    log,
-    onEvent: (_e, hash) => {
-      recentHashes.unshift(hash);
-      if (recentHashes.length > 20) recentHashes.pop();
-      lastPushAt = Date.now();
-    },
-  });
-  // loop forever for long-running demos: re-run with new match id offset
-  let n = 1;
-  while (true) {
-    await new Promise((r) => setTimeout(r, 30_000));
-    const mid = BigInt(fixtureId + n);
-    log.info({ matchId: mid.toString() }, "replaying simulator for new matchId");
-    await runSimulator({
-      wallet,
-      pub,
-      oracle,
-      matchId: mid,
-      intervalMs: Number(process.env.SIM_INTERVAL_MS || "5000"),
-      log,
-      onEvent: (_e, hash) => {
-        recentHashes.unshift(hash);
-        if (recentHashes.length > 20) recentHashes.pop();
-        lastPushAt = Date.now();
-      },
-    });
-    n++;
-  }
-}
-
-// Health HTTP
 const app = express();
 app.use(cors());
 app.get("/health", (_req, res) => {
   res.json({
     ok: true,
     service: "feeder",
-    mode,
+    provider: provider.name,
     status,
-    fixtureId,
+    fixtures: fixturesCache.length,
     lastPushAt,
     lastError,
     recentHashes: recentHashes.slice(0, 5),
     oracle: process.env.ORACLE_ADDRESS || null,
   });
 });
-app.get("/script", (_req, res) => res.json({ script: DEMO_SCRIPT }));
+
+app.get("/fixtures", async (_req, res) => {
+  try {
+    if (!fixturesCache.length) fixturesCache = await provider.listFixtures();
+    res.json({ fixtures: publicFixtures(), provider: provider.name });
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
+
+app.get("/fixtures/:id", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const fx = await provider.getFixture(id);
+    if (!fx) return res.status(404).json({ error: "not found" });
+    const events = await provider.getEvents(id);
+    res.json({
+      fixture: publicFixtures().find((f) => f.id === id) || {
+        ...fx,
+        id: fx.matchId,
+        label: `${fx.home} vs ${fx.away}`,
+      },
+      events: events.map((e) => ({
+        minute: e.minute,
+        type: e.type,
+        details: e.details,
+      })),
+    });
+  } catch (e) {
+    res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
+  }
+});
 
 const port = Number(process.env.FEEDER_PORT || "4030");
-app.listen(port, () => log.info({ port }, "feeder health on"));
+app.listen(port, () => log.info({ port }, "feeder API on"));
 
-async function main() {
-  if (mode === "live") await runLiveLoop();
-  else await runSimOnce();
-}
-
-main().catch((e) => {
+loop().catch((e) => {
   log.error(e);
   process.exit(1);
 });

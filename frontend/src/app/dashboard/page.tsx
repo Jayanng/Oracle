@@ -7,7 +7,6 @@ import {
   useReadContract,
   useWriteContract,
   useAccount,
-  useWaitForTransactionReceipt,
 } from "wagmi";
 import { parseUnits } from "viem";
 import { toast } from "sonner";
@@ -18,98 +17,96 @@ import {
   REWARDS_ADDRESS,
   USDC_ADDRESS,
   ERC20_ABI,
-  metaFor,
   type OracleEvent,
 } from "@/lib/contracts";
 import { eventIcon, parseScore, shortAddr } from "@/lib/utils";
 import { explorerAddress } from "@/lib/chain";
 import { motion, AnimatePresence } from "framer-motion";
-
-const DEMO_ID = Number(process.env.NEXT_PUBLIC_FIXTURE_ID || "2026001");
+import {
+  fetchFixtures,
+  statusLabel,
+  type PublicFixture,
+} from "@/lib/fixtures";
 
 export default function DashboardPage() {
-  const [selected, setSelected] = useState(DEMO_ID);
-  const [mode, setMode] = useState<"live" | "simulator">("simulator");
-  const [liveEvents, setLiveEvents] = useState<
-    Array<{ matchId: number; type: string; category: string; ts: number; index: number }>
-  >([]);
+  const [fixtures, setFixtures] = useState<PublicFixture[]>([]);
+  const [selectedKey, setSelectedKey] = useState<string>("");
+  const [filter, setFilter] = useState<"all" | "LIVE" | "FT" | "NS">("all");
   const [stakeOpen, setStakeOpen] = useState(false);
   const [stakeAmount, setStakeAmount] = useState("10");
   const [pick, setPick] = useState<1 | 2 | 3>(1);
   const pub = usePublicClient();
   const { address } = useAccount();
-  const { writeContractAsync, data: txHash, isPending } = useWriteContract();
-  useWaitForTransactionReceipt({ hash: txHash });
+  const { writeContractAsync, isPending } = useWriteContract();
 
   const hasOracle = Boolean(ORACLE_ADDRESS && ORACLE_ADDRESS.length === 42);
 
-  const { data: matchIds, refetch: refetchIds } = useReadContract({
-    address: hasOracle ? ORACLE_ADDRESS : undefined,
-    abi: ORACLE_ABI,
-    functionName: "allMatchIds",
-    query: { enabled: hasOracle, refetchInterval: 8_000 },
-  });
+  useEffect(() => {
+    fetchFixtures().then((list) => {
+      setFixtures(list);
+      if (!selectedKey && list[0]) {
+        setSelectedKey(list[0].label);
+      }
+    });
+    const t = setInterval(() => {
+      fetchFixtures().then(setFixtures);
+    }, 30_000);
+    return () => clearInterval(t);
+  }, [selectedKey]);
+
+  const selected = useMemo(
+    () => fixtures.find((f) => f.label === selectedKey) || fixtures[0],
+    [fixtures, selectedKey]
+  );
+  // internal only — never shown
+  const matchId = selected?.id;
 
   const { data: events, refetch: refetchEvents } = useReadContract({
-    address: hasOracle ? ORACLE_ADDRESS : undefined,
+    address: hasOracle && matchId != null ? ORACLE_ADDRESS : undefined,
     abi: ORACLE_ABI,
     functionName: "getEvents",
-    args: [BigInt(selected)],
-    query: { enabled: hasOracle, refetchInterval: 5_000 },
+    args: matchId != null ? [BigInt(matchId)] : undefined,
+    query: {
+      enabled: hasOracle && matchId != null,
+      refetchInterval: 8_000,
+    },
   });
 
-  // Watch EventAdded
   useEffect(() => {
     if (!pub || !hasOracle) return;
     const unwatch = pub.watchContractEvent({
       address: ORACLE_ADDRESS,
       abi: ORACLE_ABI,
       eventName: "EventAdded",
-      onLogs: (logs) => {
-        for (const log of logs) {
-          const { matchId, index, category, eventType, timestamp } = log.args as {
-            matchId?: bigint;
-            index?: bigint;
-            category?: string;
-            eventType?: string;
-            timestamp?: bigint;
-          };
-          if (matchId == null) continue;
-          setLiveEvents((prev) => [
-            {
-              matchId: Number(matchId),
-              type: eventType || "?",
-              category: category || "",
-              ts: Number(timestamp || 0),
-              index: Number(index || 0),
-            },
-            ...prev,
-          ].slice(0, 50));
-          if (Number(matchId) === selected) refetchEvents();
-          refetchIds();
-        }
+      onLogs: () => {
+        refetchEvents();
       },
     });
     return () => unwatch();
-  }, [pub, hasOracle, selected, refetchEvents, refetchIds]);
+  }, [pub, hasOracle, refetchEvents]);
 
-  const ids = useMemo(() => {
-    const fromChain = (matchIds as bigint[] | undefined)?.map(Number) || [];
-    if (!fromChain.includes(selected)) fromChain.unshift(selected);
-    if (!fromChain.includes(DEMO_ID)) fromChain.unshift(DEMO_ID);
-    return Array.from(new Set(fromChain));
-  }, [matchIds, selected]);
+  const filtered = useMemo(() => {
+    if (filter === "all") return fixtures;
+    if (filter === "LIVE")
+      return fixtures.filter((f) => f.status === "LIVE" || f.status === "HT");
+    return fixtures.filter((f) => f.status === filter);
+  }, [fixtures, filter]);
 
   const eventList = (events as OracleEvent[] | undefined) || [];
   const latest = eventList[eventList.length - 1];
-  const score = latest ? parseScore(latest.details) : {};
-  const goals = eventList.filter((e) => e.eventType.toLowerCase().includes("goal")).length;
-  const cards = eventList.filter((e) => e.eventType.toLowerCase().includes("card")).length;
-  const meta = metaFor(selected);
+  const scoreFromChain = latest ? parseScore(latest.details) : {};
+  const scoreHome = selected?.scoreHome ?? scoreFromChain.home;
+  const scoreAway = selected?.scoreAway ?? scoreFromChain.away;
+  const goals = eventList.filter((e) =>
+    e.eventType.toLowerCase().includes("goal")
+  ).length;
+  const cards = eventList.filter((e) =>
+    e.eventType.toLowerCase().includes("card")
+  ).length;
 
   const doStake = useCallback(async () => {
-    if (!address || !REWARDS_ADDRESS) {
-      toast.error("Connect wallet and set REWARDS_ADDRESS");
+    if (!address || !REWARDS_ADDRESS || matchId == null) {
+      toast.error("Connect wallet and select a fixture");
       return;
     }
     try {
@@ -120,129 +117,146 @@ export default function DashboardPage() {
         functionName: "approve",
         args: [REWARDS_ADDRESS, amount],
       });
-      const hash = await writeContractAsync({
+      await writeContractAsync({
         address: REWARDS_ADDRESS,
         abi: REWARDS_ABI,
         functionName: "stake",
-        args: [BigInt(selected), pick, amount],
+        args: [BigInt(matchId), pick, amount],
       });
-      toast.success(`Staked — ${hash.slice(0, 10)}…`);
+      toast.success(`Staked on ${selected?.label}`);
       setStakeOpen(false);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Stake failed");
     }
-  }, [address, stakeAmount, pick, selected, writeContractAsync]);
+  }, [
+    address,
+    stakeAmount,
+    pick,
+    matchId,
+    selected?.label,
+    writeContractAsync,
+  ]);
 
   return (
     <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-6 lg:flex-row">
-      {/* Sidebar */}
-      <aside className="w-full shrink-0 lg:w-[280px]">
-        <div className="card sticky top-20 space-y-4">
+      <aside className="w-full shrink-0 lg:w-[300px]">
+        <div className="card sticky top-20 space-y-3">
           <div className="flex items-center justify-between">
-            <h2 className="font-display text-sm font-semibold">Matches</h2>
-            <div className="flex rounded-lg border border-ink-border p-0.5 text-[10px]">
-              {(["simulator", "live"] as const).map((m) => (
+            <h2 className="font-display text-sm font-semibold">Fixtures</h2>
+            <span className="text-[10px] text-ink-muted">
+              {fixtures.length} loaded
+            </span>
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {(["all", "LIVE", "FT", "NS"] as const).map((f) => (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={`rounded-md px-2 py-1 text-[10px] ${
+                  filter === f
+                    ? "bg-cyan-accent/20 text-cyan-accent"
+                    : "text-ink-muted"
+                }`}
+              >
+                {f === "NS" ? "UPCOMING" : f}
+              </button>
+            ))}
+          </div>
+          <ul className="max-h-[70vh] space-y-1 overflow-y-auto">
+            {filtered.map((fx) => (
+              <li key={fx.label + (fx.kickoffUtc || "")}>
                 <button
-                  key={m}
-                  onClick={() => setMode(m)}
-                  className={`rounded-md px-2 py-1 capitalize ${
-                    mode === m ? "bg-cyan-accent/20 text-cyan-accent" : "text-ink-muted"
+                  onClick={() => setSelectedKey(fx.label)}
+                  className={`w-full rounded-lg px-3 py-2 text-left text-sm transition ${
+                    selected?.label === fx.label
+                      ? "bg-cyan-accent/10 text-white ring-1 ring-cyan-accent/40"
+                      : "text-ink-muted hover:bg-ink"
                   }`}
                 >
-                  {m}
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate font-medium text-white/90">
+                      {fx.home} vs {fx.away}
+                    </span>
+                    <span
+                      className={`pill shrink-0 ${
+                        fx.status === "LIVE" || fx.status === "HT"
+                          ? "bg-live/15 text-live"
+                          : "bg-ink-border text-ink-muted"
+                      }`}
+                    >
+                      {statusLabel(fx.status)}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 text-[10px] text-ink-muted">
+                    {fx.group ? `Group ${fx.group}` : fx.stage || ""}{" "}
+                    {fx.kickoffUtc ? `· ${fx.kickoffUtc}` : ""}
+                  </div>
                 </button>
-              ))}
-            </div>
-          </div>
-          <ul className="space-y-1">
-            {ids.map((id) => {
-              const m = metaFor(id);
-              return (
-                <li key={id}>
-                  <button
-                    onClick={() => setSelected(id)}
-                    className={`w-full rounded-lg px-3 py-2 text-left text-sm transition ${
-                      selected === id
-                        ? "bg-cyan-accent/10 text-white ring-1 ring-cyan-accent/40"
-                        : "hover:bg-ink border border-transparent text-ink-muted"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span>{m.homeFlag}</span>
-                      <span className="truncate">
-                        {m.home} vs {m.away}
-                      </span>
-                    </div>
-                    <div className="mt-0.5 font-mono text-[10px] text-ink-muted">
-                      #{id}
-                    </div>
-                  </button>
-                </li>
-              );
-            })}
+              </li>
+            ))}
+            {filtered.length === 0 && (
+              <p className="py-6 text-center text-xs text-ink-muted">
+                No fixtures. Start feeder with real provider (worldcup26 /
+                api-football).
+              </p>
+            )}
           </ul>
-          {!hasOracle && (
-            <p className="text-xs text-amber-400">
-              Set NEXT_PUBLIC_ORACLE_ADDRESS after deploy to stream live chain
-              data. Demo meta still works.
-            </p>
-          )}
         </div>
       </aside>
 
-      {/* Main */}
       <div className="min-w-0 flex-1 space-y-4">
-        {/* Header score */}
         <div className="card relative overflow-hidden">
           <div className="absolute right-4 top-4">
-            <span className="pill bg-live/15 text-live">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-live" />
-              {mode === "simulator" ? "SIMULATOR" : "LIVE"}
+            <span
+              className={`pill ${
+                selected?.status === "LIVE"
+                  ? "bg-live/15 text-live"
+                  : "bg-ink-card text-ink-muted"
+              }`}
+            >
+              {selected ? statusLabel(selected.status) : "—"}
             </span>
           </div>
           <div className="flex flex-col items-center gap-4 py-4 sm:flex-row sm:justify-center sm:gap-12">
             <div className="text-center">
-              <div className="text-4xl">{meta.homeFlag}</div>
-              <div className="mt-1 font-display text-lg font-semibold">
-                {meta.home}
+              <div className="font-display text-xl font-semibold">
+                {selected?.home || "Home"}
               </div>
             </div>
             <div className="text-center">
               <div className="font-display text-5xl font-bold tabular-nums text-cyan-accent">
-                {score.home ?? "–"} : {score.away ?? "–"}
+                {scoreHome ?? "–"} : {scoreAway ?? "–"}
               </div>
-              <div className="mt-1 text-xs text-ink-muted">
-                {latest ? `min ${latest.minute} · ${latest.eventType}` : "waiting for events"}
+              <div className="mt-1 max-w-xs text-xs text-ink-muted">
+                {selected?.label || "Select a fixture"}
+                {latest ? ` · ${latest.eventType} ${latest.minute}'` : ""}
               </div>
             </div>
             <div className="text-center">
-              <div className="text-4xl">{meta.awayFlag}</div>
-              <div className="mt-1 font-display text-lg font-semibold">
-                {meta.away}
+              <div className="font-display text-xl font-semibold">
+                {selected?.away || "Away"}
               </div>
             </div>
           </div>
         </div>
 
-        {/* Stats */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {[
-            ["Events", eventList.length],
-            ["Goals", goals],
-            ["Cards", cards],
-            ["Match ID", selected],
+            ["On-chain events", eventList.length],
+            ["Goals (on-chain)", goals],
+            ["Cards (on-chain)", cards],
+            ["Source", selected?.source || "—"],
           ].map(([k, v]) => (
             <div key={k as string} className="card py-3 text-center">
               <div className="text-xs text-ink-muted">{k}</div>
-              <div className="font-display text-xl font-semibold">{v}</div>
+              <div className="font-display text-lg font-semibold">{v}</div>
             </div>
           ))}
         </div>
 
-        {/* Feed + actions */}
         <div className="grid gap-4 lg:grid-cols-3">
           <div className="card lg:col-span-2">
-            <h3 className="mb-4 font-display font-semibold">Event feed</h3>
+            <h3 className="mb-4 font-display font-semibold">On-chain event feed</h3>
             <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
               <AnimatePresence initial={false}>
                 {[...eventList].reverse().map((e, i) => (
@@ -258,7 +272,9 @@ export default function DashboardPage() {
                         <span className="rounded bg-ink-border px-1.5 font-mono text-[10px]">
                           {e.minute}&apos;
                         </span>
-                        <span className="font-medium capitalize">{e.eventType}</span>
+                        <span className="font-medium capitalize">
+                          {e.eventType}
+                        </span>
                       </div>
                       <p className="truncate font-mono text-xs text-ink-muted">
                         {e.details}
@@ -269,10 +285,8 @@ export default function DashboardPage() {
               </AnimatePresence>
               {eventList.length === 0 && (
                 <p className="py-8 text-center text-sm text-ink-muted">
-                  No on-chain events yet. Start the feeder simulator:
-                  <code className="mt-2 block text-cyan-accent">
-                    npm run dev:feeder
-                  </code>
+                  No on-chain events for this fixture yet. Feeder posts when the
+                  match is live/finished.
                 </p>
               )}
             </div>
@@ -282,15 +296,12 @@ export default function DashboardPage() {
             <div className="card space-y-3">
               <h3 className="font-display font-semibold">Quick actions</h3>
               <Link
-                href={`/agent?matchId=${selected}`}
+                href={`/agent?q=${encodeURIComponent(selected?.label || "")}`}
                 className="btn-primary w-full"
               >
-                Ask agent about match
+                Ask agent about this match
               </Link>
-              <button
-                className="btn-ghost w-full"
-                onClick={() => setStakeOpen(true)}
-              >
+              <button className="btn-ghost w-full" onClick={() => setStakeOpen(true)}>
                 Stake on outcome
               </button>
             </div>
@@ -311,23 +322,16 @@ export default function DashboardPage() {
                   "not set"
                 )}
               </div>
-              <div>Live tips: {liveEvents.length}</div>
-              {liveEvents[0] && (
-                <div className="text-[10px]">
-                  Last: {liveEvents[0].type} @ match {liveEvents[0].matchId}
-                </div>
-              )}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Stake modal */}
       {stakeOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
           <div className="card w-full max-w-md space-y-4">
             <h3 className="font-display text-lg font-semibold">
-              Stake — match #{selected}
+              Stake — {selected?.label}
             </h3>
             <div className="flex gap-2">
               {(
@@ -356,8 +360,6 @@ export default function DashboardPage() {
               onChange={(e) => setStakeAmount(e.target.value)}
               className="w-full rounded-lg border border-ink-border bg-ink px-3 py-2 text-sm outline-none focus:border-cyan-accent"
               placeholder="USDC amount"
-              min="0"
-              step="0.1"
             />
             <div className="flex gap-2">
               <button className="btn-ghost flex-1" onClick={() => setStakeOpen(false)}>

@@ -106,7 +106,7 @@ export default function ExplorerPage() {
                   {m.homeFlag} {m.home} vs {m.away} {m.awayFlag}
                 </span>
               </div>
-              <div className="mt-1 font-mono text-xs text-ink-muted">matchId {id}</div>
+              <div className="mt-1 text-xs text-ink-muted">Fixture #{id}</div>
             </button>
           );
         })}
