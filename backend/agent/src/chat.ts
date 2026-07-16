@@ -130,10 +130,10 @@ const nameMap: Record<string, keyof typeof tools | "listFixtures"> = {
 async function resolveArgs(
   args: { matchId?: number; query?: string },
   userText: string
-): Promise<{ matchId: number }> {
+): Promise<{ matchId: number } | null> {
   if (args.matchId != null) return { matchId: args.matchId };
   const id = await resolveMatchId(args.query || userText);
-  if (id == null) throw new Error("Could not resolve fixture from message");
+  if (id == null) return null;
   return { matchId: id };
 }
 
@@ -163,10 +163,21 @@ async function runTool(
   }
   const fn = nameMap[name];
   if (!fn || fn === "listFixtures") throw new Error(`unknown tool: ${name}`);
-  const { matchId } = await resolveArgs(
+  const resolved = await resolveArgs(
     rawArgs as { matchId?: number; query?: string },
     userText
   );
+  if (!resolved) {
+    return {
+      result: {
+        _error: "no_fixture",
+        message:
+          "I couldn't find a match matching those team names. Try asking for 'list fixtures' first, or use team names from the fixture list.",
+      },
+      ms: Date.now() - t0,
+    };
+  }
+  const { matchId } = resolved;
   const raw = await (tools as any)[fn]({ matchId });
   const result = Array.isArray(raw)
     ? { events: raw, _fixture: labelFor(matchId) }
@@ -178,25 +189,35 @@ async function runTool(
   };
 }
 
-function regexRoute(text: string): { tool: string } | null {
+function regexRoute(text: string): { tool: string; status?: string } | null {
   const lower = text.toLowerCase();
-  if (/fixtures|schedule|upcoming|which matches/.test(lower)) {
-    return { tool: "list_fixtures" };
+  if (/fixtures|schedule|upcoming|which matches|finished/.test(lower)) {
+    return { tool: "list_fixtures", status: /finished/.test(lower) ? "FT" : undefined };
   }
-  if (/premium|x402|stats|analytics|xg/.test(lower)) {
+  if (/premium|x402|stats|analytics|xg|predictions?|predict/.test(lower)) {
     return { tool: "get_premium_stats" };
   }
   if (/settle/.test(lower)) return { tool: "settle_match" };
   if (/all\s+(events|goals)|list\s+events|show\s+me\s+all/.test(lower)) {
     return { tool: "list_events" };
   }
-  if (/latest|last\s+event|what\s+happened|score|goal/.test(lower)) {
+  if (/latest|last\s+event|what\s+happened|score|goal|live/.test(lower)) {
     return { tool: "get_latest_event" };
   }
   return null;
 }
 
 function formatAnswer(tool: string, result: unknown): string {
+  const r = result as Record<string, unknown> | undefined;
+  if (r?._error === "no_fixture") {
+    return r.message as string;
+  }
+  if (r?._error === "no_events") {
+    const fixture = (r._fixture as string) || `match ${r.matchId}`;
+    return `**${fixture}** has no events on-chain yet.${
+      r.message ? ` ${r.message}` : ""
+    } Try asking for 'list fixtures' to see which matches are live.`;
+  }
   if (tool === "list_fixtures") {
     const arr = result as Array<{
       label: string;
@@ -232,17 +253,13 @@ function formatAnswer(tool: string, result: unknown): string {
     return `On-chain events for **${wrapped._fixture || "fixture"}**:\n${lines.join("\n") || "(none yet)"}`;
   }
   if (tool === "get_premium_stats") {
-    const s = result as {
-      xg?: { home: number; away: number };
-      possession?: { home: number; away: number };
-      _x402?: { paid: boolean; amount: string };
-      narrative?: string;
-      _fixture?: string;
-    };
-    const paid = s._x402
-      ? `\n\n💳 **x402**: paid ${Number(s._x402.amount) / 1e6} USDC (verified).`
+    const s = result as Record<string, unknown>;
+    const xg = s.xg as { home?: number; away?: number } | undefined;
+    const possession = s.possession as { home?: number; away?: number } | undefined;
+    const paid = s._paid
+      ? `\n\n💳 **x402**: premium data paid autonomously.`
       : "";
-    return `Premium analytics for **${s._fixture || "fixture"}**:\n- xG: ${s.xg?.home} – ${s.xg?.away}\n- Possession: ${s.possession?.home}% – ${s.possession?.away}%\n- ${s.narrative || ""}${paid}`;
+    return `Premium analytics for **${s._fixture || "fixture"}**:\n- xG: ${xg?.home ?? "?"} – ${xg?.away ?? "?"}\n- Possession: ${possession?.home ?? "?"}% – ${possession?.away ?? "?"}%\n- ${(s.narrative as string) || ""}${paid}`;
   }
   if (tool === "settle_match") {
     const r = result as { hash: string; _fixture?: string };
@@ -307,14 +324,15 @@ app.post("/chat", async (req, res) => {
     const useDet =
       !llm ||
       process.env.FORCE_DETERMINISTIC === "1" ||
-      /latest event|premium stats|settle|all goals|list events|fixtures|schedule/i.test(
+      /latest event|premium stats|settle|all goals|list events|fixtures|schedule|finished|live|predictions?|predict/i.test(
         lastUser
       );
 
     if (routed && useDet) {
       try {
-        const { result, ms } = await runTool(routed.tool, {}, lastUser);
-        trace.push({ tool: routed.tool, args: {}, result, ms });
+        const detArgs = routed.status ? { status: routed.status } : {};
+        const { result, ms } = await runTool(routed.tool, detArgs, lastUser);
+        trace.push({ tool: routed.tool, args: detArgs, result, ms });
         return res.json({
           answer: formatAnswer(routed.tool, result),
           trace: sanitizeTrace(trace),
@@ -355,11 +373,23 @@ app.post("/chat", async (req, res) => {
     ];
 
     for (let step = 0; step < 5; step++) {
-      const r = await llm.chat.completions.create({
-        model: llmModel,
-        messages: convo,
-        tools: toolSchema,
-      });
+      let r;
+      try {
+        r = await llm.chat.completions.create({
+          model: llmModel,
+          messages: convo,
+          tools: toolSchema,
+        });
+      } catch (llmErr) {
+        const msg = llmErr instanceof Error ? llmErr.message : String(llmErr);
+        return res.json({
+          answer:
+            `I encountered an issue contacting the LLM (${msg}). Try a more specific query like "list fixtures" or "latest event for England vs France" — I can handle those without the LLM.`,
+          trace: sanitizeTrace(trace),
+          mode: "llm-error",
+          llm: llmProvider,
+        });
+      }
       const msg = r.choices[0].message;
       convo.push(msg);
       if (!msg.tool_calls?.length) {

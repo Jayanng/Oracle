@@ -113,15 +113,15 @@ app.get("/premium-stats", async (req, res) => {
     };
     paymentLog.unshift(entry);
 
+    const narrative = `Away side leads in xG, possession, and shots — indicates stronger attacking performance.`;
     res.json({
       matchId: Number(req.query.matchId || 0),
       xg: { home: 1.34, away: 1.87 },
       possession: { home: 44, away: 56 },
       shots: { home: 9, away: 14 },
       keyPasses: { home: 6, away: 11 },
-      narrative:
-        "France slightly favored on xG; Argentina more efficient finishing.",
-      _paid: entry,
+      narrative,
+      _paid: true,
       _protocol: "x402-eip712-v1",
     });
   } catch (e) {

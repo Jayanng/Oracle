@@ -43,32 +43,34 @@ export async function resolveMatchId(text: string, fallback?: number): Promise<n
     if (fixtures.some((f) => f.id === id)) return id;
   }
 
-  // "Mexico vs South Africa" / "Argentina against France"
-  const vs = lower.match(/([a-z\s.]+?)\s+(?:vs\.?|v|against)\s+([a-z\s.]+)/i);
-  if (vs) {
-    const a = vs[1].trim();
-    const b = vs[2].trim();
+  // "Mexico vs South Africa" / "Argentina against France" — extract team names near the keyword
+  const vsMatch = extractVsTeams(text);
+  if (vsMatch) {
+    const [a, b] = vsMatch;
     const hit = fixtures.find(
       (f) =>
         (f.home.toLowerCase().includes(a) && f.away.toLowerCase().includes(b)) ||
         (f.home.toLowerCase().includes(b) && f.away.toLowerCase().includes(a))
     );
     if (hit) return hit.id;
+    // Both team names given but no match found — don't silently fallback
+    return null;
   }
 
-  // single team name
+  // both team names in same fixture
   for (const f of fixtures) {
     if (lower.includes(f.home.toLowerCase()) && lower.includes(f.away.toLowerCase())) {
       return f.id;
     }
   }
+  // single team name — narrow to matches mentioning that team
   for (const f of fixtures) {
     if (lower.includes(f.home.toLowerCase()) || lower.includes(f.away.toLowerCase())) {
       return f.id;
     }
   }
 
-  // prefer LIVE then first FT then first NS
+  // No team names at all in query — generic request, use fallback
   const live = fixtures.find((f) => f.status === "LIVE" || f.status === "HT");
   if (live) return live.id;
   const ft = fixtures.find((f) => f.status === "FT");
@@ -80,4 +82,39 @@ export async function resolveMatchId(text: string, fallback?: number): Promise<n
 export function labelFor(id: number): string {
   const f = cache.find((x) => x.id === id);
   return f ? f.label : `Fixture ${id}`;
+}
+
+/** Extract up to 3 words around "vs" / "v" / "against" — avoids gobbling the query sentence */
+const STOP_WORDS = new Set([
+  "what", "was", "the", "for", "latest", "event", "show", "me", "get",
+  "all", "list", "fixtures", "match", "between", "and", "against", "in",
+  "of", "is", "are", "did", "do", "does", "has", "have", "been", "were",
+  "will", "would", "could", "can", "from", "with", "any",
+  "give", "predictions", "predict", "premium", "stats", "analytics", "xg",
+  "live", "finished", "final", "score", "scores", "today",
+]);
+
+function extractVsTeams(text: string): [string, string] | null {
+  const m = text.match(
+    /\b(vs\.?|v|against)\b/i
+  );
+  if (!m) return null;
+  const idx = (m.index ?? 0) + m[0].length;
+
+  const before = text.slice(0, m.index ?? 0).trim();
+  const beforeWords = before.split(/\s+/).filter((w) => w.length >= 2);
+  const teamA = beforeWords
+    .filter((w) => !STOP_WORDS.has(w.toLowerCase()))
+    .slice(-3)
+    .join(" ");
+
+  const after = text.slice(idx).trim();
+  const afterWords = after.split(/\s+/).filter((w) => w.length >= 2);
+  const teamB = afterWords
+    .filter((w) => !STOP_WORDS.has(w.toLowerCase()))
+    .slice(0, 3)
+    .join(" ");
+
+  if (!teamA || !teamB) return null;
+  return [teamA.toLowerCase().replace(/[^a-z\s-]/g, "").trim(), teamB.toLowerCase().replace(/[^a-z\s-]/g, "").trim()];
 }

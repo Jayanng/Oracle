@@ -2,16 +2,10 @@
 
 import { useEffect, useRef, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { Bot, Send, Wrench, CreditCard } from "lucide-react";
+import { Bot, Send } from "lucide-react";
 import { fetchFixtures, type PublicFixture } from "@/lib/fixtures";
 
 type Msg = { role: "user" | "assistant"; content: string };
-type TraceItem = {
-  tool: string;
-  args: unknown;
-  result: unknown;
-  ms?: number;
-};
 
 /** Same-origin proxy — works in Codespaces (do not call localhost:4020 from browser) */
 const CHAT_URL = "/api/chat";
@@ -30,7 +24,6 @@ function AgentInner() {
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [trace, setTrace] = useState<TraceItem[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -76,9 +69,6 @@ function AgentInner() {
         ...m,
         { role: "assistant", content: data.answer || "(empty)" },
       ]);
-      if (Array.isArray(data.trace)) {
-        setTrace((t) => [...data.trace, ...t].slice(0, 40));
-      }
     } catch (e) {
       setMessages((m) => [
         ...m,
@@ -93,7 +83,7 @@ function AgentInner() {
   }
 
   return (
-    <div className="mx-auto flex h-[calc(100vh-8rem)] max-w-7xl flex-col gap-4 px-4 py-4 lg:flex-row">
+    <div className="mx-auto flex h-[calc(100vh-8rem)] max-w-4xl flex-col gap-4 px-4 py-4">
       <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-ink-border bg-ink-card">
         <div className="flex items-center gap-3 border-b border-ink-border px-4 py-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-cyan-accent/15 text-cyan-accent">
@@ -189,61 +179,8 @@ function AgentInner() {
           </button>
         </form>
       </div>
-
-      <aside className="flex w-full flex-col rounded-xl border border-ink-border bg-ink-card lg:w-[320px]">
-        <div className="border-b border-ink-border px-4 py-3 font-display text-sm font-semibold">
-          Agent Action Log
-        </div>
-        <div className="flex-1 space-y-2 overflow-y-auto p-3">
-          {trace.length === 0 && (
-            <p className="text-xs text-ink-muted">
-              Tool calls appear here — including x402 payment traces.
-            </p>
-          )}
-          {trace.map((t, i) => (
-            <div
-              key={i}
-              className="rounded-lg border border-ink-border/80 bg-ink px-3 py-2 text-xs"
-            >
-              <div className="flex items-center gap-2 font-medium text-cyan-accent">
-                {t.tool === "get_premium_stats" ? (
-                  <CreditCard className="h-3.5 w-3.5" />
-                ) : (
-                  <Wrench className="h-3.5 w-3.5" />
-                )}
-                {t.tool}
-                {t.ms != null && (
-                  <span className="ml-auto font-mono text-[10px] text-ink-muted">
-                    {t.ms}ms
-                  </span>
-                )}
-              </div>
-              <pre className="mt-1 max-h-28 overflow-auto whitespace-pre-wrap break-all text-[10px] text-ink-muted">
-                {JSON.stringify(
-                  { args: t.args, result: summarize(t.result) },
-                  null,
-                  2
-                )}
-              </pre>
-            </div>
-          ))}
-        </div>
-      </aside>
     </div>
   );
-}
-
-function summarize(r: unknown) {
-  if (r && typeof r === "object" && "_x402" in (r as object)) {
-    const o = r as { _x402?: unknown; xg?: unknown; narrative?: string; _fixture?: string };
-    return { fixture: o._fixture, xg: o.xg, narrative: o.narrative, _x402: o._x402 };
-  }
-  if (r && typeof r === "object" && "_fixture" in (r as object)) {
-    const o = r as Record<string, unknown>;
-    const { matchId: _m, ...rest } = o;
-    return rest;
-  }
-  return r;
 }
 
 function MessageBody({ text }: { text: string }) {

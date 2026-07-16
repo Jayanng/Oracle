@@ -87,24 +87,44 @@ function mapEvent(e: readonly [bigint, bigint, number, string, string, string, `
 export const tools = {
   async getLatestEvent({ matchId }: { matchId: number }) {
     const pub = readClient();
-    const e = await pub.readContract({
-      address: oracleAddr(),
-      abi: ORACLE_ABI,
-      functionName: "getLatestEvent",
-      args: [BigInt(matchId)],
-    });
-    return mapEvent(e);
+    try {
+      const e = await pub.readContract({
+        address: oracleAddr(),
+        abi: ORACLE_ABI,
+        functionName: "getLatestEvent",
+        args: [BigInt(matchId)],
+      });
+      return mapEvent(e);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return {
+        _error: "no_events",
+        matchId,
+        message: `No on-chain events yet for this fixture. The match may not have started or the feeder hasn't pushed events.`,
+        detail: msg.includes("no events") ? "oracle: no events" : msg,
+      };
+    }
   },
 
   async listEvents({ matchId }: { matchId: number }) {
     const pub = readClient();
-    const arr = await pub.readContract({
-      address: oracleAddr(),
-      abi: ORACLE_ABI,
-      functionName: "getEvents",
-      args: [BigInt(matchId)],
-    });
-    return arr.map(mapEvent);
+    try {
+      const arr = await pub.readContract({
+        address: oracleAddr(),
+        abi: ORACLE_ABI,
+        functionName: "getEvents",
+        args: [BigInt(matchId)],
+      });
+      return arr.map(mapEvent);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return {
+        _error: "no_events",
+        matchId,
+        message: `No on-chain events yet for this fixture.`,
+        detail: msg.includes("no events") ? "oracle: no events" : msg,
+      };
+    }
   },
 
   async settleMatch({ matchId }: { matchId: number }) {
