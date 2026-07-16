@@ -3,6 +3,8 @@
 import { useState } from "react";
 import {
   useAccount,
+  useChainId,
+  useConfig,
   useReadContract,
   useWriteContract,
 } from "wagmi";
@@ -17,16 +19,21 @@ import {
   TOKEN_MESSENGER_ABI,
 } from "@/lib/contracts";
 import { shortAddr } from "@/lib/utils";
+import { ensureInjectiveChain, isInjectiveChain } from "@/lib/ensureInjective";
+import { INJECTIVE_EVM_CHAIN_ID } from "@/lib/wagmi";
 
 // Internal default WC 2022 opener (Qatar vs Ecuador) — not shown as "match id" in UI
 const MATCH = 855736;
 const AGENT_URL = "/api/chat";
-const SEPOLIA_DOMAIN = 0; // Ethereum Sepolia CCTP domain
+/** CCTP destination domain only. Source burn is always Injective. */
+const SEPOLIA_DOMAIN = 0;
 
 type Step = "idle" | "pending" | "done" | "error" | "sim";
 
 export default function RewardsPage() {
   const { address, isConnected } = useAccount();
+  const config = useConfig();
+  const chainId = useChainId();
   const [amount, setAmount] = useState("5");
   const [cctpSim, setCctpSim] = useState(true);
   const [steps, setSteps] = useState<Record<number, Step>>({
@@ -39,6 +46,7 @@ export default function RewardsPage() {
   const { writeContractAsync, isPending } = useWriteContract();
 
   const hasRewards = Boolean(REWARDS_ADDRESS && REWARDS_ADDRESS.length === 42);
+  const onInjective = isInjectiveChain(chainId);
 
   const { data: market } = useReadContract({
     address: hasRewards ? REWARDS_ADDRESS : undefined,
@@ -77,13 +85,15 @@ export default function RewardsPage() {
   async function claim() {
     if (!hasRewards) return toast.error("REWARDS_ADDRESS not set");
     try {
+      await ensureInjectiveChain(config);
       const hash = await writeContractAsync({
+        chainId: INJECTIVE_EVM_CHAIN_ID,
         address: REWARDS_ADDRESS,
         abi: REWARDS_ABI,
         functionName: "claim",
         args: [BigInt(MATCH)],
       });
-      toast.success(`Claim tx ${hash.slice(0, 12)}…`);
+      toast.success(`Claim tx ${hash.slice(0, 12)}… (Injective)`);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "claim failed");
     }
@@ -93,19 +103,29 @@ export default function RewardsPage() {
     if (!address) return toast.error("Connect wallet");
     const amt = parseUnits(amount, 6);
 
+    try {
+      await ensureInjectiveChain(config);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Switch to Injective first");
+      return;
+    }
+
     if (cctpSim) {
       setSteps({ 1: "sim", 2: "sim", 3: "sim", 4: "sim" });
       try {
         if (hasRewards) {
           const recipient = pad(address as `0x${string}`, { size: 32 });
           await writeContractAsync({
+            chainId: INJECTIVE_EVM_CHAIN_ID,
             address: REWARDS_ADDRESS,
             abi: REWARDS_ABI,
             functionName: "logCrossChainWithdraw",
             args: [BigInt(MATCH), SEPOLIA_DOMAIN, amt, recipient],
           });
         }
-        toast.success("CCTP simulator: intent logged (no live attestation wait)");
+        toast.success(
+          "CCTP simulator: intent logged on Injective (no live attestation wait)"
+        );
       } catch (e) {
         toast.message("Simulator UI only — " + (e instanceof Error ? e.message : ""));
       }
@@ -115,6 +135,7 @@ export default function RewardsPage() {
     try {
       setSteps({ 1: "pending", 2: "idle", 3: "idle", 4: "idle" });
       await writeContractAsync({
+        chainId: INJECTIVE_EVM_CHAIN_ID,
         address: USDC_ADDRESS,
         abi: ERC20_ABI,
         functionName: "approve",
@@ -124,14 +145,16 @@ export default function RewardsPage() {
 
       const mintRecipient = pad(address as `0x${string}`, { size: 32 });
       const hash = await writeContractAsync({
+        chainId: INJECTIVE_EVM_CHAIN_ID,
         address: CCTP_TOKEN_MESSENGER,
         abi: TOKEN_MESSENGER_ABI,
         functionName: "depositForBurn",
         args: [amt, SEPOLIA_DOMAIN, mintRecipient, USDC_ADDRESS],
       });
       setSteps((s) => ({ ...s, 2: "done", 3: "pending" }));
-      toast.success(`Burn submitted ${hash.slice(0, 12)}… poll attestation offline`);
-      // Attestation can take minutes — leave step 3 pending with note
+      toast.success(
+        `Burn submitted on Injective ${hash.slice(0, 12)}… poll attestation offline`
+      );
       setSteps((s) => ({ ...s, 3: "pending", 4: "idle" }));
     } catch (e) {
       setSteps((s) => ({ ...s, 1: "error", 2: "error" }));
@@ -171,6 +194,14 @@ export default function RewardsPage() {
         <h1 className="font-display text-3xl font-bold">Rewards Center</h1>
         <p className="mt-1 text-ink-muted">
           Stake on match outcomes, claim USDC, bridge via Circle CCTP.
+        </p>
+        <p className="mt-2 text-xs">
+          Active wallet network:{" "}
+          <span className={onInjective ? "text-cyan-accent" : "text-amber-300"}>
+            {onInjective
+              ? `Injective EVM · ${chainId} (gas = INJ, stake = USDC)`
+              : `chain ${chainId} — switch to Injective ${INJECTIVE_EVM_CHAIN_ID} before claim/stake`}
+          </span>
         </p>
       </div>
 
@@ -227,8 +258,11 @@ export default function RewardsPage() {
             </label>
           </div>
           <p className="text-xs text-ink-muted">
-            Destination: Ethereum Sepolia (domain {SEPOLIA_DOMAIN}). Source:
-            Injective testnet domain 29 · Messenger {shortAddr(CCTP_TOKEN_MESSENGER)}
+            <strong className="text-white">Source burn:</strong> Injective EVM
+            (chain {INJECTIVE_EVM_CHAIN_ID}, domain 29) ·{" "}
+            <strong className="text-white">Destination mint:</strong> Sepolia
+            CCTP domain {SEPOLIA_DOMAIN} only (predictions stay on Injective).
+            Messenger {shortAddr(CCTP_TOKEN_MESSENGER)}
           </p>
           <input
             value={amount}

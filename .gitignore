@@ -10,10 +10,12 @@ dist/
 coverage/
 *.log
 .DS_Store
-lib/
-!contracts/lib/.gitkeep
+# Foundry / Solidity deps only — do NOT use a bare "lib/" rule
+# (it hid frontend/src/lib and broke deploys)
 contracts/lib/
+!contracts/lib/.gitkeep
 frontend/.next/
 frontend/out/
+frontend/.env.local
 *.tsbuildinfo
 .vercel

@@ -7,6 +7,8 @@ import {
   useReadContract,
   useWriteContract,
   useAccount,
+  useConfig,
+  useChainId,
 } from "wagmi";
 import { parseUnits } from "viem";
 import { toast } from "sonner";
@@ -21,6 +23,8 @@ import {
 } from "@/lib/contracts";
 import { eventIcon, parseScore, shortAddr } from "@/lib/utils";
 import { explorerAddress } from "@/lib/chain";
+import { ensureInjectiveChain, isInjectiveChain } from "@/lib/ensureInjective";
+import { INJECTIVE_EVM_CHAIN_ID } from "@/lib/wagmi";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   fetchFixtures,
@@ -36,10 +40,13 @@ export default function DashboardPage() {
   const [stakeAmount, setStakeAmount] = useState("10");
   const [pick, setPick] = useState<1 | 2 | 3>(1);
   const pub = usePublicClient();
+  const config = useConfig();
+  const chainId = useChainId();
   const { address } = useAccount();
   const { writeContractAsync, isPending } = useWriteContract();
 
   const hasOracle = Boolean(ORACLE_ADDRESS && ORACLE_ADDRESS.length === 42);
+  const onInjective = isInjectiveChain(chainId);
 
   useEffect(() => {
     fetchFixtures().then((list) => {
@@ -110,20 +117,24 @@ export default function DashboardPage() {
       return;
     }
     try {
+      // Predictions MUST run on Injective EVM — not Ethereum mainnet/sepolia
+      await ensureInjectiveChain(config);
       const amount = parseUnits(stakeAmount, 6);
       await writeContractAsync({
+        chainId: INJECTIVE_EVM_CHAIN_ID,
         address: USDC_ADDRESS,
         abi: ERC20_ABI,
         functionName: "approve",
         args: [REWARDS_ADDRESS, amount],
       });
       await writeContractAsync({
+        chainId: INJECTIVE_EVM_CHAIN_ID,
         address: REWARDS_ADDRESS,
         abi: REWARDS_ABI,
         functionName: "stake",
         args: [BigInt(matchId), pick, amount],
       });
-      toast.success(`Staked on ${selected?.label}`);
+      toast.success(`Staked on ${selected?.label} (Injective)`);
       setStakeOpen(false);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Stake failed");
@@ -135,6 +146,7 @@ export default function DashboardPage() {
     matchId,
     selected?.label,
     writeContractAsync,
+    config,
   ]);
 
   return (
@@ -336,6 +348,16 @@ export default function DashboardPage() {
             <h3 className="font-display text-lg font-semibold">
               Stake — {selected?.label}
             </h3>
+            <p className="text-xs text-ink-muted">
+              Network:{" "}
+              <span className={onInjective ? "text-cyan-accent" : "text-amber-300"}>
+                {onInjective
+                  ? `Injective EVM · ${INJECTIVE_EVM_CHAIN_ID} (INJ gas)`
+                  : `Wrong chain ${chainId} — will switch to Injective before stake`}
+              </span>
+              . Stake asset is <strong className="text-white">USDC</strong> on
+              Injective (not ETH).
+            </p>
             <div className="flex gap-2">
               {(
                 [

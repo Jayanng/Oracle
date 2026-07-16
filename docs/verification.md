@@ -17,7 +17,13 @@
 
 ### Decision: x402
 
-Use **vanilla HTTP-402 + EIP-712 signed payment header** for the demo (zero facilitator gas dependency). Optionally wire `@injectivelabs/x402` client/middleware later — package confirmed real with Injective chain IDs 1776/1439 and EIP-3009 USDC support.
+**Default (official):** `@injectivelabs/x402` — `injectivePaymentMiddleware` + `createInjectiveClient`.
+- Network: `eip155:1439` (testnet) / `eip155:1776` (mainnet)
+- Asset: Circle USDC EIP-3009 (`0x0C382e…` testnet, `0xa00C59…` mainnet)
+- Amount: `10000` = 0.01 USDC
+- Flow: HTTP 402 → EIP-3009 auth sign → local/remote facilitator settles on Injective → data
+
+**Fallback:** `X402_MODE=demo` — vanilla EIP-712 header only (no on-chain USDC) when facilitator/USDC unavailable.
 
 ### Decision: MCP
 
