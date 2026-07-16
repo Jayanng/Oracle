@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [Master, main, master]
+  pull_request:
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+      - name: Test
+        working-directory: contracts
+        run: forge test -vv
+
+  node:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm install
+      - run: npm --workspace feeder run build
+      - run: npm --workspace agent run build
+      - run: npm --workspace x402-endpoint run build
+      - run: npm --workspace frontend run build
+        env:
+          NEXT_PUBLIC_INJ_EVM_CHAIN_ID: "1439"
+          NEXT_PUBLIC_INJ_EVM_RPC: https://k8s.testnet.json-rpc.injective.network
+          NEXT_PUBLIC_INJ_EVM_EXPLORER: https://testnet.blockscout.injective.network

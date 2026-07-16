@@ -1,0 +1,15 @@
+{
+  "name": "cup-event-oracle",
+  "private": true,
+  "workspaces": ["feeder", "agent", "frontend", "x402-endpoint"],
+  "scripts": {
+    "dev:feeder": "npm --workspace feeder run dev",
+    "dev:agent": "npm --workspace agent run dev",
+    "dev:web": "npm --workspace frontend run dev",
+    "dev:x402": "npm --workspace x402-endpoint run dev",
+    "build:feeder": "npm --workspace feeder run build",
+    "build:agent": "npm --workspace agent run build",
+    "build:x402": "npm --workspace x402-endpoint run build",
+    "test:contracts": "cd contracts && forge test -vv"
+  }
+}
