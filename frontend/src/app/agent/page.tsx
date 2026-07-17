@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
+import { useAccount } from "wagmi";
 import { Bot, Send } from "lucide-react";
 import { fetchFixtures, type PublicFixture } from "@/lib/fixtures";
 
@@ -11,6 +12,12 @@ type Msg = { role: "user" | "assistant"; content: string };
 const CHAT_URL = "/api/chat";
 
 function AgentInner() {
+  const router = useRouter();
+  const { isConnected } = useAccount();
+  useEffect(() => {
+    if (!isConnected) router.replace("/");
+  }, [isConnected, router]);
+
   const params = useSearchParams();
   const q = params.get("q") || "";
   const [focus, setFocus] = useState(q);

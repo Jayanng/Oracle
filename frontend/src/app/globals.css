@@ -26,7 +26,7 @@ body {
     @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition;
   }
   .btn-primary {
-    @apply btn bg-cyan-accent text-ink hover:bg-cyan-300;
+    @apply btn bg-cyan-accent text-ink hover:bg-[#3B35CC];
   }
   .btn-ghost {
     @apply btn border border-ink-border bg-transparent text-gray-200 hover:border-cyan-accent/50 hover:text-cyan-accent;
@@ -44,4 +44,9 @@ body {
 ::-webkit-scrollbar-thumb {
   background: #2a3142;
   border-radius: 4px;
+}
+
+@keyframes marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
 }

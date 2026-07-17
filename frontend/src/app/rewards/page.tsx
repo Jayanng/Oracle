@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   useAccount,
   useChainId,
@@ -31,7 +32,11 @@ const SEPOLIA_DOMAIN = 0;
 type Step = "idle" | "pending" | "done" | "error" | "sim";
 
 export default function RewardsPage() {
+  const router = useRouter();
   const { address, isConnected } = useAccount();
+  useEffect(() => {
+    if (!isConnected) router.replace("/");
+  }, [isConnected, router]);
   const config = useConfig();
   const chainId = useChainId();
   const [amount, setAmount] = useState("5");
