@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useAccount } from "wagmi";
-import { Bot, Send } from "lucide-react";
+import { Bot, Send, CreditCard, CheckCircle2, Wrench } from "lucide-react";
 import { fetchFixtures, type PublicFixture } from "@/lib/fixtures";
 import { explorerTx } from "@/lib/chain";
 import { shortAddr } from "@/lib/utils";
