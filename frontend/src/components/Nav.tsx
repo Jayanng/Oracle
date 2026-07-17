@@ -23,7 +23,7 @@ const protectedLinks = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/agent", label: "Agent" },
   { href: "/explorer", label: "Explorer" },
-  { href: "/rewards", label: "Rewards" },
+  { href: "/drops", label: "Drops" },
   { href: "/x402", label: "Analytics" },
 ];
 

@@ -63,10 +63,8 @@ function AgentInner() {
     focus
       ? `Get premium stats for ${focus}`
       : "Show me finished matches",
-    focus ? `Show me all events for ${focus}` : "Latest live match events",
-    focus
-      ? `Settle the prediction market for ${focus}`
-      : "List fixtures that are live",
+    "Create a drop: 0.5 USDC each to the first 20 wallets when Argentina scores",
+    "How much have I earned as a feeder?",
   ];
 
   useEffect(() => {

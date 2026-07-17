@@ -17,7 +17,7 @@ const explorer =
 
 /**
  * Single-chain app config. Native gas token is INJ (not ETH).
- * Stakes/rewards use USDC ERC-20 on this chain.
+ * Drops use USDC ERC-20 on this chain.
  */
 export const injectiveEvmTestnet = {
   id: INJECTIVE_EVM_CHAIN_ID,

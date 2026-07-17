@@ -91,8 +91,8 @@ export default function LandingPage() {
             },
             {
               n: "03",
-              title: "x402 pay · CCTP settle",
-              body: "Agent pays for premium analytics over HTTP 402. Winners claim USDC and bridge via CCTP.",
+              title: "x402 pay · CCTP bridge",
+              body: "Agents pay for premium analytics over HTTP 402. Sponsors fund drops, fans claim free rewards cross-chain via CCTP. Feeders earn treasury revenue.",
               icon: CreditCard,
             },
           ].map((c) => (
@@ -132,8 +132,8 @@ export default function LandingPage() {
                 icon: Zap,
               },
               {
-                title: "CCTP Rewards",
-                desc: "Burn USDC on Injective, mint on Sepolia via Circle CCTP V2.",
+                title: "Fan Drops + Feeder Economy",
+                desc: "Sponsor-funded drops with zero user risk. Feeders earn x402 treasury revenue, withdraw cross-chain via CCTP.",
                 icon: Globe2,
               },
             ].map((f) => (

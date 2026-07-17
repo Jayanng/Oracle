@@ -28,8 +28,8 @@ export function Footer() {
             <a href="/explorer" className="transition hover:text-white">
               Explorer
             </a>
-            <a href="/rewards" className="transition hover:text-white">
-              Rewards
+            <a href="/drops" className="transition hover:text-white">
+              Drops
             </a>
           </div>
         </div>

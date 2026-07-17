@@ -44,7 +44,8 @@ export async function GET() {
     x402,
     fixtureCount,
     oracle: process.env.NEXT_PUBLIC_ORACLE_ADDRESS || null,
-    rewards: process.env.NEXT_PUBLIC_REWARDS_ADDRESS || null,
+    drops: process.env.NEXT_PUBLIC_DROPS_ADDRESS || null,
+    treasury: process.env.NEXT_PUBLIC_TREASURY_ADDRESS || null,
     chainId: process.env.NEXT_PUBLIC_INJ_EVM_CHAIN_ID || "1439",
   });
 }

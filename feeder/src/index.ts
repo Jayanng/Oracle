@@ -5,7 +5,8 @@ import express from "express";
 import cors from "cors";
 import pRetry from "p-retry";
 import pino from "pino";
-import { getClients, ORACLE_ABI, REWARDS_ABI } from "./chain.js";
+import { getClients, ORACLE_ABI } from "./chain.js";
+import { parseAbi } from "viem";
 import { getSportsProvider, type Fixture } from "./providers/index.js";
 import { sortFixturesTournamentDesc } from "./providers/sort.js";
 
@@ -54,104 +55,6 @@ async function pushEvent(
   if (recentHashes.length > 20) recentHashes.pop();
   log.info({ hash, type, minute, matchId: matchId.toString() }, "event pushed");
   return hash;
-}
-
-/** Fixtures we've already opened a market for — avoids redundant calls. */
-const openedMarkets = new Set<number>();
-let settlerGranted = false;
-
-/**
- * Ensure a prediction market is open on CupRewards for a fixture.
- * - Grants SETTLER_ROLE to the feeder wallet once (idempotent)
- * - Calls openMarket(matchId, closesAt=kickoff) for any fixture not yet opened
- * - closesAt is set to the fixture kickoff time so the market auto-locks at kickoff
- */
-async function ensureMarketOpen(fx: Fixture) {
-  const { wallet, pub, account, rewards } = getClients();
-  if (!rewards) return;
-
-  // Grant SETTLER_ROLE to self once
-  if (!settlerGranted) {
-    try {
-      const hasRole = (await pub.readContract({
-        address: rewards,
-        abi: REWARDS_ABI,
-        functionName: "hasRole",
-        args: [
-          (await pub.readContract({
-            address: rewards,
-            abi: REWARDS_ABI,
-            functionName: "SETTLER_ROLE",
-          })) as `0x${string}`,
-          account.address,
-        ],
-      })) as boolean;
-      if (!hasRole) {
-        const h = await wallet.writeContract({
-          address: rewards,
-          abi: REWARDS_ABI,
-          functionName: "grantRole",
-          args: [
-            (await pub.readContract({
-              address: rewards,
-              abi: REWARDS_ABI,
-              functionName: "SETTLER_ROLE",
-            })) as `0x${string}`,
-            account.address,
-          ],
-        } as any);
-        await pub.waitForTransactionReceipt({ hash: h });
-        log.info({ hash: h, account: account.address }, "granted SETTLER_ROLE to feeder");
-      }
-      settlerGranted = true;
-    } catch (e) {
-      log.warn({ err: e instanceof Error ? e.message : e }, "could not grant SETTLER_ROLE");
-      return;
-    }
-  }
-
-  if (openedMarkets.has(fx.matchId)) return;
-
-  // Check if a market already exists on-chain
-  let existing: bigint = 0n;
-  try {
-    const m = (await pub.readContract({
-      address: rewards,
-      abi: REWARDS_ABI,
-      functionName: "markets",
-      args: [BigInt(fx.matchId)],
-    })) as readonly [bigint, bigint, number, bigint, bigint, bigint, boolean];
-    existing = m[1]; // closesAt
-  } catch {
-    /* ignore — will try to open */
-  }
-  if (existing > 0n) {
-    openedMarkets.add(fx.matchId);
-    return;
-  }
-
-  // closesAt = fixture kickoff time. Market auto-locks at kickoff.
-  let closesAt = Math.floor(Date.now() / 1000) + 7 * 24 * 3600;
-  if (fx.kickoffUtc) {
-    const ts = Date.parse(fx.kickoffUtc);
-    if (!Number.isNaN(ts)) {
-      closesAt = Math.floor(ts / 1000);
-    }
-  }
-
-  try {
-    const hash = await wallet.writeContract({
-      address: rewards,
-      abi: REWARDS_ABI,
-      functionName: "openMarket",
-      args: [BigInt(fx.matchId), BigInt(closesAt)],
-    } as any);
-    await pub.waitForTransactionReceipt({ hash });
-    openedMarkets.add(fx.matchId);
-    log.info({ hash, matchId: fx.matchId, closesAt }, "market opened");
-  } catch (e) {
-    log.warn({ err: e instanceof Error ? e.message : e, matchId: fx.matchId }, "openMarket failed");
-  }
 }
 
 async function tickFixture(fx: Fixture) {
@@ -210,8 +113,41 @@ function stageLabel(f: Fixture): string {
   return f.stage || f.group || "";
 }
 
+async function logTreasuryEarnings() {
+  const treasury = process.env.TREASURY_ADDRESS;
+  if (!treasury) return;
+  try {
+    const { pub } = getClients();
+    const TREASURY_ABI_CHECK = parseAbi([
+      "function earnedBy(address feeder) view returns (uint256)",
+      "function feederEventCount(address feeder) view returns (uint256)",
+      "function totalRevenue() view returns (uint256)",
+    ]);
+    const { account } = getClients();
+    const earned = await pub.readContract({
+      address: treasury as `0x${string}`,
+      abi: TREASURY_ABI_CHECK,
+      functionName: "earnedBy",
+      args: [account.address],
+    });
+    const eventCount = await pub.readContract({
+      address: treasury as `0x${string}`,
+      abi: TREASURY_ABI_CHECK,
+      functionName: "feederEventCount",
+      args: [account.address],
+    });
+    log.info(
+      { earned: Number(earned) / 1e6, eventCount: Number(eventCount) },
+      "treasury earnings at startup"
+    );
+  } catch (e) {
+    log.warn({ err: e instanceof Error ? e.message : e }, "could not read treasury earnings");
+  }
+}
+
 async function loop() {
   status = "running";
+  await logTreasuryEarnings();
   log.info({ provider: provider.name }, "feeder started (real fixtures)");
   while (true) {
     try {
@@ -261,19 +197,8 @@ async function loop() {
         );
       }
 
-      // Open prediction markets only for UPCOMING fixtures (NS/TBD).
-      // Staking on finished/live matches makes no sense — the outcome is already known.
-      if (process.env.REWARDS_ADDRESS) {
-        const upcoming = fixturesCache.filter((f) => f.status === "NS" || f.status === "TBD");
-        for (const fx of upcoming) {
-          if (openedMarkets.has(fx.matchId)) continue;
-          try {
-            await ensureMarketOpen(fx);
-          } catch (e) {
-            log.warn({ err: e, matchId: fx.matchId }, "ensureMarketOpen failed");
-          }
-        }
-      }
+      // Markets are no longer opened automatically — the old prediction market
+      // has been replaced by FanDrops + OracleTreasury.
 
       for (const fx of work) {
         try {
@@ -304,12 +229,12 @@ app.get("/health", (_req, res) => {
     provider: provider.name,
     status,
     fixtures: fixturesCache.length,
-    marketsOpened: openedMarkets.size,
+    drops: process.env.DROPS_ADDRESS || null,
     lastPushAt,
     lastError,
     recentHashes: recentHashes.slice(0, 5),
     oracle: process.env.ORACLE_ADDRESS || null,
-    rewards: process.env.REWARDS_ADDRESS || null,
+    treasury: process.env.TREASURY_ADDRESS || null,
   });
 });
 

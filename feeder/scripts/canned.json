@@ -1,0 +1,8 @@
+[
+  { "minute": 0, "type": "kickoff", "details": { "home": "Argentina", "away": "France" } },
+  { "minute": 12, "type": "goal", "details": { "team": "Argentina", "player": "Messi", "score": "1-0" } },
+  { "minute": 34, "type": "card", "details": { "team": "France", "player": "Mbappé", "kind": "yellow" } },
+  { "minute": 45, "type": "halftime", "details": { "home": 1, "away": 0, "homeTeam": "Argentina", "awayTeam": "France" } },
+  { "minute": 67, "type": "goal", "details": { "team": "France", "player": "Mbappé", "score": "1-1" } },
+  { "minute": 90, "type": "final", "details": { "home": 1, "away": 1, "homeTeam": "Argentina", "awayTeam": "France" } }
+]
