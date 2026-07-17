@@ -300,10 +300,22 @@ export function createWorldCup26Provider(): SportsProvider {
 
   async function refresh() {
     if (cache && Date.now() - cachedAt < 60_000) return;
-    const { data } = await axios.get(`${BASE}/get/games`, { timeout: 20_000 });
-    gamesRaw = data.games || data || [];
-    cache = mapGames(gamesRaw);
-    cachedAt = Date.now();
+    try {
+      const { data } = await axios.get(`${BASE}/get/games`, { timeout: 20_000 });
+      gamesRaw = data.games || data || [];
+      cache = mapGames(gamesRaw);
+      cachedAt = Date.now();
+    } catch (e) {
+      // DNS / network blips are common — keep serving last good snapshot
+      if (cache && cache.length) {
+        console.warn(
+          "[worldcup26] refresh failed, using stale cache:",
+          e instanceof Error ? e.message : e
+        );
+        return;
+      }
+      throw e;
+    }
   }
 
   return {

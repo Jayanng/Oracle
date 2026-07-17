@@ -5,8 +5,18 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { useAccount } from "wagmi";
 import { Bot, Send } from "lucide-react";
 import { fetchFixtures, type PublicFixture } from "@/lib/fixtures";
+import { explorerTx } from "@/lib/chain";
+import { shortAddr } from "@/lib/utils";
 
 type Msg = { role: "user" | "assistant"; content: string };
+
+type TraceEntry = {
+  tool: string;
+  args: unknown;
+  result: unknown;
+  ms: number;
+  at?: string;
+};
 
 /** Same-origin proxy — works in Codespaces (do not call localhost:4020 from browser) */
 const CHAT_URL = "/api/chat";
@@ -31,10 +41,15 @@ function AgentInner() {
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [traceLog, setTraceLog] = useState<TraceEntry[]>([]);
+  const [lastMode, setLastMode] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  // IMPORTANT: fetchFixtures() returns PublicFixture[] — do not change that contract
   useEffect(() => {
-    fetchFixtures().then(setFixtures);
+    fetchFixtures().then((list) => {
+      if (Array.isArray(list)) setFixtures(list);
+    });
   }, []);
 
   useEffect(() => {
@@ -49,7 +64,9 @@ function AgentInner() {
       ? `Get premium stats for ${focus}`
       : "Show me finished matches",
     focus ? `Show me all events for ${focus}` : "Latest live match events",
-    "List fixtures that are live",
+    focus
+      ? `Settle the prediction market for ${focus}`
+      : "List fixtures that are live",
   ];
 
   useEffect(() => {
@@ -70,18 +87,60 @@ function AgentInner() {
           messages: next.map((m) => ({ role: m.role, content: m.content })),
         }),
       });
-      const data = await r.json();
-      if (!r.ok) throw new Error(data.error || data.hint || "chat failed");
-      setMessages((m) => [
-        ...m,
-        { role: "assistant", content: data.answer || "(empty)" },
-      ]);
+      const data = await r.json().catch(() => ({} as Record<string, unknown>));
+      // Prefer showing the agent answer even if status is non-2xx (tool soft-errors)
+      if (typeof data.answer === "string" && data.answer.length > 0) {
+        setMessages((m) => [
+          ...m,
+          { role: "assistant", content: data.answer as string },
+        ]);
+      } else if (!r.ok) {
+        const errMsg =
+          (data.error as string) ||
+          (data.hint as string) ||
+          `chat HTTP ${r.status}`;
+        // 402 from x402 is payment, not "agent down"
+        if (
+          r.status === 402 ||
+          /status code 402|payment required/i.test(errMsg)
+        ) {
+          setMessages((m) => [
+            ...m,
+            {
+              role: "assistant",
+              content:
+                "💳 **x402 Payment Required (HTTP 402)** — the paywall responded correctly. " +
+                "The agent must complete USDC payment on Injective (or set `X402_MODE=demo` on the x402 endpoint). " +
+                "This does **not** mean the agent is offline.",
+            },
+          ]);
+        } else {
+          throw new Error(errMsg);
+        }
+      } else {
+        setMessages((m) => [
+          ...m,
+          { role: "assistant", content: data.answer || "(empty)" },
+        ]);
+      }
+      if (data.mode) setLastMode(String(data.mode));
+      if (Array.isArray(data.trace) && data.trace.length > 0) {
+        const stamped = (data.trace as TraceEntry[]).map((t) => ({
+          ...t,
+          at: new Date().toISOString(),
+        }));
+        setTraceLog((prev) => [...stamped, ...prev].slice(0, 40));
+      }
     } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const is402 = /402|payment required/i.test(msg);
       setMessages((m) => [
         ...m,
         {
           role: "assistant",
-          content: `Could not reach agent via \`${CHAT_URL}\`. Is the agent running on :4020? (${e instanceof Error ? e.message : e})`,
+          content: is402
+            ? `💳 **x402 (HTTP 402)** — payment required for premium stats, not an agent outage. ${msg}`
+            : `Could not reach agent via \`${CHAT_URL}\`. Is the agent running on :4020? (${msg})`,
         },
       ]);
     } finally {
@@ -90,8 +149,9 @@ function AgentInner() {
   }
 
   return (
-    <div className="mx-auto flex h-[calc(100vh-8rem)] max-w-4xl flex-col gap-4 px-4 py-4">
-      <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-ink-border bg-ink-card">
+    <div className="mx-auto flex h-[calc(100vh-8rem)] max-w-7xl flex-col gap-4 px-4 py-4 lg:flex-row">
+      {/* Chat */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col rounded-xl border border-ink-border bg-ink-card">
         <div className="flex items-center gap-3 border-b border-ink-border px-4 py-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-cyan-accent/15 text-cyan-accent">
             <Bot className="h-5 w-5" />
@@ -100,6 +160,7 @@ function AgentInner() {
             <div className="font-display font-semibold">CupAgent</div>
             <div className="text-xs text-ink-muted">
               🟢 Online · MCP tools · Groq / deterministic
+              {lastMode ? ` · ${lastMode}` : ""}
             </div>
           </div>
         </div>
@@ -129,6 +190,7 @@ function AgentInner() {
             {chips.map((c) => (
               <button
                 key={c}
+                type="button"
                 onClick={() => send(c)}
                 className="rounded-full border border-ink-border px-3 py-1 text-xs text-ink-muted transition hover:border-cyan-accent/50 hover:text-cyan-accent"
               >
@@ -186,12 +248,117 @@ function AgentInner() {
           </button>
         </form>
       </div>
+
+      {/* Batch 1: Action Log — uses existing chat `trace` field only */}
+      <aside className="flex h-48 shrink-0 flex-col overflow-hidden rounded-xl border border-ink-border bg-ink-card lg:h-auto lg:w-[320px]">
+        <div className="border-b border-ink-border px-4 py-3">
+          <div className="font-display text-sm font-semibold">
+            Agent Action Log
+          </div>
+          <div className="text-[11px] text-ink-muted">
+            MCP tools · x402 · settle txs
+          </div>
+        </div>
+        <div className="flex-1 space-y-2 overflow-y-auto p-3">
+          {traceLog.length === 0 && (
+            <p className="py-8 text-center text-xs text-ink-muted">
+              Tool calls appear here when CupAgent runs MCP tools.
+            </p>
+          )}
+          {traceLog.map((t, i) => (
+            <TraceCard key={`${t.tool}-${t.ms}-${i}-${t.at || i}`} entry={t} />
+          ))}
+        </div>
+        {traceLog.length > 0 && (
+          <button
+            type="button"
+            className="border-t border-ink-border px-3 py-2 text-xs text-ink-muted hover:text-white"
+            onClick={() => setTraceLog([])}
+          >
+            Clear log
+          </button>
+        )}
+      </aside>
+    </div>
+  );
+}
+
+function TraceCard({ entry }: { entry: TraceEntry }) {
+  const r =
+    entry.result && typeof entry.result === "object"
+      ? (entry.result as Record<string, unknown>)
+      : {};
+  const x402 = r._x402 as
+    | {
+        paid?: boolean;
+        protocol?: string;
+        amount?: string | number;
+        transaction?: string;
+        network?: string;
+      }
+    | undefined;
+  const hash =
+    typeof r.hash === "string"
+      ? r.hash
+      : typeof x402?.transaction === "string"
+        ? x402.transaction
+        : undefined;
+  const isPremium =
+    entry.tool.includes("premium") || entry.tool.includes("stats");
+  const isSettle = entry.tool.includes("settle");
+
+  return (
+    <div className="rounded-lg border border-ink-border/80 bg-ink/60 px-3 py-2 text-[11px]">
+      <div className="flex items-start gap-2">
+        <span className="mt-0.5 text-cyan-accent">
+          {isPremium ? (
+            <CreditCard className="h-3.5 w-3.5" />
+          ) : isSettle ? (
+            <CheckCircle2 className="h-3.5 w-3.5" />
+          ) : (
+            <Wrench className="h-3.5 w-3.5" />
+          )}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="font-mono text-[11px] text-white">
+            {entry.tool}
+            <span className="ml-2 text-ink-muted">{entry.ms}ms</span>
+          </div>
+          {typeof r._fixture === "string" && (
+            <div className="mt-0.5 text-[10px] text-ink-muted">
+              {r._fixture}
+            </div>
+          )}
+          {isPremium && (r._paid || x402?.paid) && (
+            <div className="mt-1 rounded bg-cyan-accent/10 px-2 py-1 text-[10px] text-cyan-accent">
+              💳 x402 paid
+              {x402?.protocol ? ` · ${x402.protocol}` : ""}
+              {x402?.network ? ` · ${x402.network}` : " · Injective"}
+            </div>
+          )}
+          {hash && (
+            <a
+              href={explorerTx(hash)}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-1 inline-block text-[10px] text-cyan-accent hover:underline"
+            >
+              tx {shortAddr(hash)}
+            </a>
+          )}
+          {r._error != null && (
+            <div className="mt-1 text-[10px] text-amber-300">
+              {String(r.message || r._error)}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
 
 function MessageBody({ text }: { text: string }) {
-  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`|\n)/g);
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)]+\)|\n)/g);
   return (
     <span className="whitespace-pre-wrap">
       {parts.map((p, i) => {
@@ -207,6 +374,20 @@ function MessageBody({ text }: { text: string }) {
               {p.slice(1, -1)}
             </code>
           );
+        const linkMatch = p.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+        if (linkMatch) {
+          return (
+            <a
+              key={i}
+              href={linkMatch[2]}
+              target="_blank"
+              rel="noreferrer"
+              className="text-cyan-accent underline decoration-dotted underline-offset-2 hover:text-cyan-300 font-mono text-[12px]"
+            >
+              {linkMatch[1]}
+            </a>
+          );
+        }
         return <span key={i}>{p}</span>;
       })}
     </span>
@@ -215,7 +396,9 @@ function MessageBody({ text }: { text: string }) {
 
 export default function AgentPage() {
   return (
-    <Suspense fallback={<div className="p-8 text-ink-muted">Loading agent…</div>}>
+    <Suspense
+      fallback={<div className="p-8 text-ink-muted">Loading agent…</div>}
+    >
       <AgentInner />
     </Suspense>
   );

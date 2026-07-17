@@ -80,17 +80,20 @@ export default function DashboardPage() {
   const onInjective = isInjectiveChain(chainId);
 
   useEffect(() => {
-    fetchFixtures().then((list) => {
-      setFixtures(list);
-      if (!selectedKey && list[0]) {
-        setSelectedKey(list[0].label);
-      }
-    });
-    const t = setInterval(() => {
-      fetchFixtures().then(setFixtures);
-    }, 30_000);
-    return () => clearInterval(t);
-  }, [selectedKey]);
+    let cancelled = false;
+    const load = () =>
+      fetchFixtures().then((list) => {
+        if (cancelled) return;
+        setFixtures(list);
+        setSelectedKey((prev) => prev || list[0]?.label || "");
+      });
+    load();
+    const t = setInterval(load, 20_000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, []);
 
   const stageFixtures = useMemo(
     () => fixtures.filter((f) => matchStageKey(f) === stageKey),
@@ -245,7 +248,7 @@ export default function DashboardPage() {
 
       {/* Match detail */}
       {selected && (
-        <div className="mx-auto max-w-7xl px-4 pb-6">
+        <div className="mx-auto max-w-7xl px-4 pb-6 pt-4">
           <div className="space-y-4">
             <div className="card relative overflow-hidden">
               <div className="absolute right-4 top-4">
