@@ -27,6 +27,8 @@ let status: "idle" | "running" | "error" = "idle";
 let lastError: string | null = null;
 const recentHashes: string[] = [];
 let fixturesCache: Fixture[] = [];
+/** Rotate which finished fixtures we catch up so we cover more than one batch. */
+let ftCursor = 0;
 
 async function pushEvent(
   matchId: bigint,
@@ -115,20 +117,49 @@ async function loop() {
   log.info({ provider: provider.name }, "feeder started (real fixtures)");
   while (true) {
     try {
-      fixturesCache = await provider.listFixtures();
+      try {
+        fixturesCache = await provider.listFixtures();
+      } catch (e) {
+        // Keep processing last good fixture list if provider is briefly down
+        if (!fixturesCache.length) throw e;
+        lastError = e instanceof Error ? e.message : String(e);
+        log.warn(
+          { err: lastError, cached: fixturesCache.length },
+          "listFixtures failed — using cached fixtures"
+        );
+      }
+
       const active = fixturesCache.filter((f) =>
         ["LIVE", "HT", "FT"].includes(f.status)
       );
-      // Prefer live first, then recent FT for catch-up (limit FT batch)
+      // Prefer live first, then rotate FT catch-up so more than 8 matches get on-chain
       const live = active.filter((f) => f.status === "LIVE" || f.status === "HT");
-      const ft = active
-        .filter((f) => f.status === "FT")
-        .slice(0, Number(process.env.FEEDER_FT_BATCH || "8"));
+      const allFt = active.filter((f) => f.status === "FT");
+      const batch = Math.max(1, Number(process.env.FEEDER_FT_BATCH || "12"));
+      const ft =
+        allFt.length === 0
+          ? []
+          : Array.from({ length: Math.min(batch, allFt.length) }, (_, i) => {
+              return allFt[(ftCursor + i) % allFt.length];
+            });
+      if (allFt.length > 0) {
+        ftCursor = (ftCursor + batch) % allFt.length;
+      }
       const work = [...live, ...ft];
       if (work.length === 0) {
         log.info(
           { total: fixturesCache.length },
           "no live/FT fixtures yet — idle poll"
+        );
+      } else {
+        log.info(
+          {
+            live: live.length,
+            ftBatch: ft.length,
+            ftTotal: allFt.length,
+            sample: work.slice(0, 3).map((w) => `${w.home} vs ${w.away}`),
+          },
+          "feeder tick batch"
         );
       }
       for (const fx of work) {
@@ -139,6 +170,7 @@ async function loop() {
         }
       }
       lastError = null;
+      status = "running";
     } catch (e) {
       lastError = e instanceof Error ? e.message : String(e);
       status = "error";

@@ -115,8 +115,13 @@ function premiumPayload(matchId: number, protocol: string) {
 // ---------------------------------------------------------------------------
 if (MODE === "official") {
   const middlewareOpts: Parameters<typeof injectivePaymentMiddleware>[1] = {
-    settlementPolicy: "after-success",
-    baseUrl: process.env.X402_BASE_URL || `http://localhost:${process.env.X402_PORT || "4021"}`,
+    // "before" settles USDC on-chain first, then returns body — avoids
+    // HTTPParserError when "after-success" races settlement headers with the body
+    // (Node undici: "Response does not match the HTTP/1.1 protocol").
+    settlementPolicy: "before",
+    baseUrl:
+      process.env.X402_BASE_URL ||
+      `http://127.0.0.1:${process.env.X402_PORT || "4021"}`,
   };
 
   if (FACILITATOR_URL) {

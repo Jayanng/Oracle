@@ -49,17 +49,20 @@ export default function DashboardPage() {
   const onInjective = isInjectiveChain(chainId);
 
   useEffect(() => {
-    fetchFixtures().then((list) => {
-      setFixtures(list);
-      if (!selectedKey && list[0]) {
-        setSelectedKey(list[0].label);
-      }
-    });
-    const t = setInterval(() => {
-      fetchFixtures().then(setFixtures);
-    }, 30_000);
-    return () => clearInterval(t);
-  }, [selectedKey]);
+    let cancelled = false;
+    const load = () =>
+      fetchFixtures().then((list) => {
+        if (cancelled) return;
+        setFixtures(list);
+        setSelectedKey((prev) => prev || list[0]?.label || "");
+      });
+    load();
+    const t = setInterval(load, 20_000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, []);
 
   const selected = useMemo(
     () => fixtures.find((f) => f.label === selectedKey) || fixtures[0],
@@ -210,10 +213,41 @@ export default function DashboardPage() {
               </li>
             ))}
             {filtered.length === 0 && (
-              <p className="py-6 text-center text-xs text-ink-muted">
-                No fixtures. Start feeder with real provider (worldcup26 /
-                api-football).
-              </p>
+              <div className="space-y-2 py-6 text-center text-xs text-ink-muted">
+                {fixtures.length > 0 && filter === "LIVE" ? (
+                  <>
+                    <p>
+                      No live matches right now.{" "}
+                      {fixtures.filter((f) => f.status === "FT").length} finished
+                      · {fixtures.filter((f) => f.status === "NS").length}{" "}
+                      upcoming are loaded.
+                    </p>
+                    <button
+                      type="button"
+                      className="text-cyan-accent underline"
+                      onClick={() => setFilter("all")}
+                    >
+                      Show all fixtures
+                    </button>
+                  </>
+                ) : fixtures.length > 0 ? (
+                  <p>
+                    No fixtures in this filter.{" "}
+                    <button
+                      type="button"
+                      className="text-cyan-accent underline"
+                      onClick={() => setFilter("all")}
+                    >
+                      Show all
+                    </button>
+                  </p>
+                ) : (
+                  <p>
+                    Loading fixtures… If this stays empty, start the feeder:{" "}
+                    <code className="text-cyan-accent">npm run dev:feeder</code>
+                  </p>
+                )}
+              </div>
             )}
           </ul>
         </div>
