@@ -219,6 +219,16 @@ export const ERC20_ABI = [
     inputs: [],
     outputs: [{ name: "", type: "uint8" }],
   },
+  {
+    type: "function",
+    name: "mint",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "to", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [],
+  },
 ] as const;
 
 /** Circle TokenMessengerV2 depositForBurn (common 4-arg form). */

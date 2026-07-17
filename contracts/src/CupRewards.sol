@@ -70,8 +70,11 @@ contract CupRewards is AccessControl {
         oracle = ICupEventOracle(_oracle);
     }
 
-    function openMarket(uint256 matchId, uint64 closesAt) external onlyRole(SETTLER_ROLE) {
+    /// @notice Permissionless — anyone can open a market (feeder auto-opens).
+    ///         Cannot overwrite an existing market or set a past close time.
+    function openMarket(uint256 matchId, uint64 closesAt) external {
         require(markets[matchId].closesAt == 0, "exists");
+        require(closesAt > block.timestamp, "past close");
         markets[matchId] = Market(matchId, closesAt, Outcome.UNSET, 0, 0, 0, false);
         emit MarketOpened(matchId, closesAt);
     }

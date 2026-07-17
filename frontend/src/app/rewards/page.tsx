@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   useAccount,
   useChainId,
@@ -23,11 +23,18 @@ import { shortAddr } from "@/lib/utils";
 import { explorerTx } from "@/lib/chain";
 import { ensureInjectiveChain, isInjectiveChain } from "@/lib/ensureInjective";
 import { INJECTIVE_EVM_CHAIN_ID } from "@/lib/wagmi";
+import {
+  fetchFixtures,
+  statusLabel,
+  type PublicFixture,
+} from "@/lib/fixtures";
+import type { Address } from "viem";
+import { motion } from "framer-motion";
 
-// Internal default WC 2022 opener (Qatar vs Ecuador) — not shown as "match id" in UI
-const MATCH = 855736;
 /** CCTP destination domain only. Source burn is always Injective. */
 const SEPOLIA_DOMAIN = 0;
+const LS_MATCH_ID = "lastStakedMatchId";
+const LS_MATCH_LABEL = "lastStakedMatchLabel";
 
 type Step = "idle" | "pending" | "done" | "error" | "sim";
 
@@ -57,35 +64,141 @@ export default function RewardsPage() {
   const [attestNote, setAttestNote] = useState<string | null>(null);
   const [x402Log, setX402Log] = useState<unknown>(null);
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [fixtures, setFixtures] = useState<PublicFixture[]>([]);
+  const [selectedMatchId, setSelectedMatchId] = useState<number | null>(null);
+  const [lastLabel, setLastLabel] = useState<string>("");
+  const [selectorOpen, setSelectorOpen] = useState(false);
+  const [mintPending, setMintPending] = useState(false);
+  const [cctpFundingOpen, setCctpFundingOpen] = useState(false);
   const { writeContractAsync, isPending } = useWriteContract();
 
   const hasRewards = Boolean(REWARDS_ADDRESS && REWARDS_ADDRESS.length === 42);
   const onInjective = isInjectiveChain(chainId);
 
-  const { data: market } = useReadContract({
-    address: hasRewards ? REWARDS_ADDRESS : undefined,
+  // Load fixtures + last staked match from localStorage
+  useEffect(() => {
+    let cancelled = false;
+    const load = () =>
+      fetchFixtures().then((list) => {
+        if (cancelled) return;
+        setFixtures(list);
+        // Default to last staked match or first fixture
+        const savedId = (() => {
+          try {
+            return localStorage.getItem(LS_MATCH_ID);
+          } catch {
+            return null;
+          }
+        })();
+        const savedLabel = (() => {
+          try {
+            return localStorage.getItem(LS_MATCH_LABEL) || "";
+          } catch {
+            return "";
+          }
+        })();
+        setLastLabel(savedLabel);
+        if (savedId) {
+          const n = Number(savedId);
+          if (list.some((f) => f.id === n)) {
+            setSelectedMatchId(n);
+            return;
+          }
+        }
+        setSelectedMatchId(list[0]?.id ?? null);
+      });
+    load();
+    const t = setInterval(load, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, []);
+
+  const selectedFixture = useMemo(
+    () => fixtures.find((f) => f.id === selectedMatchId),
+    [fixtures, selectedMatchId]
+  );
+
+  const matchId = selectedMatchId ?? 0;
+
+  // ---- Contract reads ----
+  const { data: market, refetch: refetchMarket } = useReadContract({
+    address: hasRewards && matchId > 0 ? REWARDS_ADDRESS : undefined,
     abi: REWARDS_ABI,
     functionName: "markets",
-    args: [BigInt(MATCH)],
-    query: { enabled: hasRewards, refetchInterval: 10_000 },
+    args: matchId > 0 ? [BigInt(matchId)] : undefined,
+    query: {
+      enabled: hasRewards && matchId > 0,
+      refetchInterval: 10_000,
+    },
   });
 
-  const { data: userStakes } = useReadContract({
-    address: hasRewards && address ? REWARDS_ADDRESS : undefined,
+  const {
+    data: userStakes,
+    refetch: refetchStakes,
+  } = useReadContract({
+    address: hasRewards && address && matchId > 0 ? REWARDS_ADDRESS : undefined,
     abi: REWARDS_ABI,
     functionName: "stakes",
-    args: address ? [BigInt(MATCH), address] : undefined,
-    query: { enabled: Boolean(hasRewards && address) },
+    args: address && matchId > 0 ? [BigInt(matchId), address] : undefined,
+    query: {
+      enabled: Boolean(hasRewards && address && matchId > 0),
+      refetchInterval: 10_000,
+    },
   });
 
-  const { data: usdcBal } = useReadContract({
+  const { data: usdcBal, refetch: refetchBalance } = useReadContract({
     address: USDC_ADDRESS,
     abi: ERC20_ABI,
     functionName: "balanceOf",
     args: address ? [address] : undefined,
-    query: { enabled: Boolean(address) },
+    query: {
+      enabled: Boolean(address),
+      refetchInterval: 15_000,
+    },
   });
 
+  // ---- Event watchers for real-time sync ----
+  useEffect(() => {
+    if (!pub || !hasRewards) return;
+    const unwatch = pub.watchContractEvent({
+      address: REWARDS_ADDRESS,
+      abi: REWARDS_ABI,
+      eventName: "Staked",
+      onLogs: () => {
+        refetchStakes();
+        refetchMarket();
+        refetchBalance();
+      },
+    });
+    return () => unwatch();
+  }, [pub, hasRewards, refetchStakes, refetchMarket, refetchBalance]);
+
+  // Force re-fetch once when matchId/address become available
+  useEffect(() => {
+    if (matchId > 0 && address) {
+      const t = setTimeout(() => refetchStakes(), 500);
+      return () => clearTimeout(t);
+    }
+  }, [matchId, address, refetchStakes]);
+
+  useEffect(() => {
+    if (!pub || !hasRewards) return;
+    const unwatch = pub.watchContractEvent({
+      address: REWARDS_ADDRESS,
+      abi: REWARDS_ABI,
+      eventName: "Claimed",
+      onLogs: () => {
+        refetchStakes();
+        refetchMarket();
+        refetchBalance();
+      },
+    });
+    return () => unwatch();
+  }, [pub, hasRewards, refetchStakes, refetchMarket, refetchBalance]);
+
+  // ---- Derived data ----
   const m = market as
     | readonly [bigint, bigint, number, bigint, bigint, bigint, boolean]
     | undefined;
@@ -93,7 +206,12 @@ export default function RewardsPage() {
   const settled = m?.[6] ?? false;
   const resolved = m?.[2] ?? 0;
   const stakes = userStakes as readonly [bigint, bigint, bigint] | undefined;
+  const stakesLoading = userStakes === undefined;
+  const hasAnyStake =
+    stakes !== undefined &&
+    (stakes[0] > BigInt(0) || stakes[1] > BigInt(0) || stakes[2] > BigInt(0));
 
+  // ---- Actions ----
   function pushHistory(item: Omit<HistoryItem, "id" | "at">) {
     setHistory((h) =>
       [
@@ -109,6 +227,7 @@ export default function RewardsPage() {
 
   async function claim() {
     if (!hasRewards) return toast.error("REWARDS_ADDRESS not set");
+    if (matchId <= 0) return toast.error("Select a match first");
     try {
       await ensureInjectiveChain(config);
       const hash = await writeContractAsync({
@@ -116,22 +235,65 @@ export default function RewardsPage() {
         address: REWARDS_ADDRESS,
         abi: REWARDS_ABI,
         functionName: "claim",
-        args: [BigInt(MATCH)],
+        args: [BigInt(matchId)],
       });
       toast.success(`Claim tx ${hash.slice(0, 12)}… (Injective)`);
       pushHistory({
         kind: "claim",
         label: "Claim payout",
         hash,
-        detail: `match ${MATCH}`,
+        detail: `match ${matchId} ${selectedFixture?.label || ""}`,
       });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "claim failed");
     }
   }
 
+  async function doMint() {
+    if (!address) return;
+    setMintPending(true);
+    try {
+      await ensureInjectiveChain(config);
+      // Mint 100 USDC (6 decimals)
+      const hash = await writeContractAsync({
+        chainId: INJECTIVE_EVM_CHAIN_ID,
+        address: USDC_ADDRESS,
+        abi: ERC20_ABI,
+        functionName: "mint",
+        args: [address, parseUnits("100", 6)],
+      });
+      if (pub) {
+        await pub.waitForTransactionReceipt({ hash, timeout: 120_000 });
+      }
+      refetchBalance();
+      toast.success("Minted 100 test USDC!");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Mint failed");
+    } finally {
+      setMintPending(false);
+    }
+  }
+
+  function handleCctpClick() {
+    if (!address) {
+      toast.error("Connect wallet");
+      return;
+    }
+    if (matchId <= 0) {
+      toast.error("Select a match first");
+      return;
+    }
+    // Check if user has Circle USDC balance
+    if (usdcBal == null || usdcBal <= BigInt(0)) {
+      setCctpFundingOpen(true);
+      return;
+    }
+    runCctp();
+  }
+
   async function runCctp() {
     if (!address) return toast.error("Connect wallet");
+    if (matchId <= 0) return toast.error("Select a match first");
     const amt = parseUnits(amount, 6);
 
     try {
@@ -147,13 +309,13 @@ export default function RewardsPage() {
       setAttestNote("Simulator: no real burn or Circle attestation.");
       try {
         if (hasRewards) {
-          const recipient = pad(address as `0x${string}`, { size: 32 });
+          const recipient = pad(address as Address, { size: 32 });
           const hash = await writeContractAsync({
             chainId: INJECTIVE_EVM_CHAIN_ID,
             address: REWARDS_ADDRESS,
             abi: REWARDS_ABI,
             functionName: "logCrossChainWithdraw",
-            args: [BigInt(MATCH), SEPOLIA_DOMAIN, amt, recipient],
+            args: [BigInt(matchId), SEPOLIA_DOMAIN, amt, recipient],
           });
           pushHistory({
             kind: "cctp",
@@ -193,7 +355,7 @@ export default function RewardsPage() {
       });
       setSteps((s) => ({ ...s, 1: "done", 2: "pending" }));
 
-      const mintRecipient = pad(address as `0x${string}`, { size: 32 });
+      const mintRecipient = pad(address as Address, { size: 32 });
       const hash = await writeContractAsync({
         chainId: INJECTIVE_EVM_CHAIN_ID,
         address: CCTP_TOKEN_MESSENGER,
@@ -212,7 +374,6 @@ export default function RewardsPage() {
       });
       toast.success(`Burn submitted on Injective ${hash.slice(0, 12)}…`);
 
-      // Batch 2: wait for burn receipt + attestation guidance (safe, non-blocking settle path)
       setAttestNote("Waiting for burn receipt on Injective…");
       try {
         if (pub) {
@@ -289,7 +450,8 @@ export default function RewardsPage() {
       <div>
         <h1 className="font-display text-3xl font-bold">Rewards Center</h1>
         <p className="mt-1 text-ink-muted">
-          Stake on match outcomes, claim USDC, bridge via Circle CCTP.
+          Claim your staking rewards on match outcomes, bridge USDC via Circle
+          CCTP.
         </p>
         <p className="mt-2 text-xs">
           Active wallet network:{" "}
@@ -301,46 +463,219 @@ export default function RewardsPage() {
         </p>
       </div>
 
+      {/* Collapsible match selector */}
+      <div className="card overflow-hidden">
+        <button
+          onClick={() => setSelectorOpen(!selectorOpen)}
+          className="flex w-full items-center justify-between gap-3 text-left"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <span className="shrink-0 text-xs font-medium text-ink-muted">
+              Match
+            </span>
+            <span className="truncate text-sm font-medium text-white">
+              {selectedFixture
+                ? `${selectedFixture.home} vs ${selectedFixture.away}`
+                : fixtures.length > 0
+                  ? "Select a match"
+                  : "Loading…"}
+            </span>
+            {selectedFixture && (
+              <span
+                className={`pill shrink-0 ${
+                  selectedFixture.status === "LIVE" ||
+                  selectedFixture.status === "HT"
+                    ? "bg-live/15 text-live"
+                    : "bg-ink-border text-ink-muted"
+                }`}
+              >
+                {statusLabel(selectedFixture.status)}
+              </span>
+            )}
+          </div>
+          <svg
+            className={`h-4 w-4 shrink-0 text-ink-muted transition-transform duration-200 ${
+              selectorOpen ? "rotate-180" : ""
+            }`}
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M19 9l-7 7-7-7"
+            />
+          </svg>
+        </button>
+
+        <div
+          className={`grid transition-all duration-200 ${
+            selectorOpen
+              ? "mt-4 grid-rows-[1fr] opacity-100"
+              : "grid-rows-[0fr] opacity-0"
+          }`}
+        >
+          <div className="overflow-hidden">
+            <div className="flex flex-wrap gap-1.5">
+              {fixtures.map((fx) => (
+                <button
+                  key={fx.id}
+                  onClick={() => {
+                    setSelectedMatchId(fx.id);
+                    setSelectorOpen(false);
+                  }}
+                  className={`rounded-lg px-3 py-1.5 text-xs transition ${
+                    selectedMatchId === fx.id
+                      ? "bg-cyan-accent/15 text-cyan-accent ring-1 ring-cyan-accent/40"
+                      : "bg-ink text-ink-muted hover:bg-ink-border"
+                  }`}
+                >
+                  {fx.status === "LIVE" || fx.status === "HT" ? "🔴 " : ""}
+                  {fx.home} vs {fx.away}
+                  <span className="ml-1.5 text-[10px] opacity-60">
+                    {statusLabel(fx.status)}
+                  </span>
+                </button>
+              ))}
+              {fixtures.length === 0 && (
+                <span className="text-xs text-ink-muted">
+                  Loading fixtures…
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Summary cards */}
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="card">
           <div className="text-xs text-ink-muted">
-            Total staked (match {MATCH})
+            Total staked{" "}
+            <span className="text-white/60">
+              ({selectedFixture?.label || `match ${matchId}`})
+            </span>
           </div>
           <div className="font-display text-2xl font-semibold">
             {totalStaked} USDC
           </div>
         </div>
         <div className="card">
-          <div className="text-xs text-ink-muted">Your stakes H / D / A</div>
+          <div className="text-xs text-ink-muted">
+            Your stakes H / D / A{" "}
+            {lastLabel && selectedMatchId && (
+              <span className="text-cyan-accent/60">
+                (last staked: {lastLabel})
+              </span>
+            )}
+          </div>
           <div className="font-display text-2xl font-semibold">
-            {stakes
-              ? `${Number(stakes[0]) / 1e6} / ${Number(stakes[1]) / 1e6} / ${Number(stakes[2]) / 1e6}`
-              : "—"}
+            {stakesLoading
+              ? "..."
+              : stakes
+                ? `${Number(stakes[0]) / 1e6} / ${Number(stakes[1]) / 1e6} / ${Number(stakes[2]) / 1e6}`
+                : "0 / 0 / 0"}
           </div>
         </div>
         <div className="card">
-          <div className="text-xs text-ink-muted">USDC balance</div>
-          <div className="font-display text-2xl font-semibold">
-            {usdcBal != null
-              ? `${Number(usdcBal) / 1e6}`
-              : isConnected
-                ? "…"
-                : "connect"}
+          <div className="flex items-center justify-between">
+            <div className="text-xs text-ink-muted">USDC balance</div>
+            <span className="rounded bg-cyan-accent/10 px-1.5 py-0.5 text-[10px] text-cyan-accent">
+              MockUSDC
+            </span>
+          </div>
+          <div className="mt-2 flex items-end justify-between gap-3">
+            <div className="font-display text-2xl font-semibold">
+              {usdcBal != null
+                ? `${Number(usdcBal) / 1e6}`
+                : isConnected
+                  ? "…"
+                  : "connect"}
+            </div>
+            {address != null && (
+              <button
+                className="btn-ghost shrink-0 text-xs"
+                disabled={mintPending || isPending}
+                onClick={doMint}
+              >
+                {mintPending ? "Minting…" : "Mint 100"}
+              </button>
+            )}
           </div>
         </div>
       </div>
 
+      {/* My positions & CCTP */}
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="card space-y-4">
-          <h2 className="font-display text-lg font-semibold">My positions</h2>
+          <h2 className="font-display text-lg font-semibold">
+            My positions{" "}
+            {hasAnyStake && (
+              <span className="ml-2 rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs text-emerald-400">
+                Active
+              </span>
+            )}
+          </h2>
+          {selectedFixture && (
+            <div className="rounded-lg border border-ink-border bg-ink/50 p-3 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-ink-muted">Match</span>
+                <span className="font-medium text-white">
+                  {selectedFixture.home} vs {selectedFixture.away}
+                </span>
+              </div>
+              <div className="mt-1 flex items-center justify-between">
+                <span className="text-ink-muted">Status</span>
+                <span
+                  className={`pill ${
+                    selectedFixture.status === "LIVE" ||
+                    selectedFixture.status === "HT"
+                      ? "bg-live/15 text-live"
+                      : "bg-ink-border text-ink-muted"
+                  }`}
+                >
+                  {statusLabel(selectedFixture.status)}
+                </span>
+              </div>
+            </div>
+          )}
           <div className="text-sm text-ink-muted">
-            Market:{" "}
+            Market status:{" "}
             {settled
               ? `settled (outcome ${resolved})`
               : m?.[1]
                 ? "open"
                 : "not opened"}
           </div>
+          {hasAnyStake && (
+            <div className="rounded-lg border border-ink-border bg-ink/50 p-3 text-sm">
+              <div className="mb-2 text-xs font-medium text-ink-muted">
+                Your ticket breakdown
+              </div>
+              <div className="space-y-1.5">
+                <div className="flex justify-between">
+                  <span className="text-ink-muted">🏠 Home</span>
+                  <span>{Number(stakes![0]) / 1e6} USDC</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-ink-muted">🤝 Draw</span>
+                  <span>{Number(stakes![1]) / 1e6} USDC</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-ink-muted">✈️ Away</span>
+                  <span>{Number(stakes![2]) / 1e6} USDC</span>
+                </div>
+                <div className="flex justify-between border-t border-ink-border pt-1 font-semibold text-cyan-accent">
+                  <span>Total</span>
+                  <span>
+                    {Number(stakes![0] + stakes![1] + stakes![2]) / 1e6} USDC
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
           <button
             className="btn-primary"
             disabled={!settled || isPending}
@@ -419,7 +754,7 @@ export default function RewardsPage() {
           )}
           <button
             className="btn-primary w-full"
-            onClick={runCctp}
+            onClick={handleCctpClick}
             disabled={isPending}
           >
             {cctpSim ? "Run CCTP simulator" : "Start CCTP burn"}
@@ -427,6 +762,61 @@ export default function RewardsPage() {
         </div>
       </div>
 
+      {/* CCTP funding modal */}
+      {cctpFundingOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="card w-full max-w-md space-y-5 text-center"
+          >
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-amber-500/20">
+              <svg
+                className="h-7 w-7 text-amber-400"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+            </div>
+            <div>
+              <h3 className="font-display text-lg font-semibold">
+                Need Circle USDC
+              </h3>
+              <p className="mt-2 text-sm text-ink-muted">
+                CCTP requires official Circle USDC on Injective testnet —
+                MockUSDC cannot be bridged. Get testnet USDC from the Circle
+                faucet.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                className="btn-ghost flex-1"
+                onClick={() => setCctpFundingOpen(false)}
+              >
+                Cancel
+              </button>
+              <a
+                href="https://faucet.circle.com"
+                target="_blank"
+                rel="noreferrer"
+                className="btn-primary flex-1 text-center"
+                onClick={() => setCctpFundingOpen(false)}
+              >
+                Open Circle Faucet
+              </a>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* x402 demo */}
       <div className="card space-y-3">
         <h2 className="font-display text-lg font-semibold">x402 demo</h2>
         <p className="text-sm text-ink-muted">
@@ -443,10 +833,12 @@ export default function RewardsPage() {
         )}
       </div>
 
-      {/* Batch 3: session history */}
+      {/* Session history */}
       <div className="card space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="font-display text-lg font-semibold">Session history</h2>
+          <h2 className="font-display text-lg font-semibold">
+            Session history
+          </h2>
           {history.length > 0 && (
             <button
               type="button"
