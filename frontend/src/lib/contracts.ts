@@ -7,8 +7,14 @@ function addr(env: string | undefined, fallback = ""): Address {
   return "" as Address;
 }
 
-export const ORACLE_ADDRESS = addr(process.env.NEXT_PUBLIC_ORACLE_ADDRESS);
-export const REWARDS_ADDRESS = addr(process.env.NEXT_PUBLIC_REWARDS_ADDRESS);
+export const ORACLE_ADDRESS = addr(
+  process.env.NEXT_PUBLIC_ORACLE_ADDRESS,
+  "0xb7f6a30cc6a27c4c36000383651454453955e9f2"
+);
+export const REWARDS_ADDRESS = addr(
+  process.env.NEXT_PUBLIC_REWARDS_ADDRESS,
+  "0xa046a8f9a88292204b361666beea70d4419472fe"
+);
 export const USDC_ADDRESS = addr(
   process.env.NEXT_PUBLIC_USDC_ADDRESS,
   "0x670A694747c84f3B5EA1F7979eF10427fe5b1194"

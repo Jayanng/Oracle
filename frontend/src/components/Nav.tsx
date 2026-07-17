@@ -24,6 +24,7 @@ const protectedLinks = [
   { href: "/agent", label: "Agent" },
   { href: "/explorer", label: "Explorer" },
   { href: "/rewards", label: "Rewards" },
+  { href: "/x402", label: "Analytics" },
 ];
 
 export function Nav() {

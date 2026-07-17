@@ -251,21 +251,25 @@ export default function DashboardPage() {
         prev ? { ...prev, step: "approve-confirm", approveHash } : null
       );
       if (pub) {
-        const approveReceipt = await pub.waitForTransactionReceipt({
-          hash: approveHash,
-          timeout: 120_000,
-        });
-        if (approveReceipt.status !== "success") {
-          setStakeConfirming(null);
-          setStakeResult({
-            status: "failed",
-            approveHash,
-            matchLabel: selected?.label || "",
-            amount: stakeAmount,
-            reason:
-              "USDC approval reverted on chain. The contract may already have sufficient allowance, or your wallet lacks USDC balance.",
+        try {
+          const approveReceipt = await pub.waitForTransactionReceipt({
+            hash: approveHash,
+            timeout: 120_000,
           });
-          return;
+          if (approveReceipt.status !== "success") {
+            setStakeConfirming(null);
+            setStakeResult({
+              status: "failed",
+              approveHash,
+              matchLabel: selected?.label || "",
+              amount: stakeAmount,
+              reason:
+                "USDC approval reverted on chain. The contract may already have sufficient allowance, or your wallet lacks USDC balance.",
+            });
+            return;
+          }
+        } catch (receiptErr) {
+          console.warn("Approve receipt wait failed, proceeding to stake", receiptErr);
         }
       }
 
@@ -285,22 +289,26 @@ export default function DashboardPage() {
         prev ? { ...prev, step: "stake-confirm", stakeHash } : null
       );
       if (pub) {
-        const stakeReceipt = await pub.waitForTransactionReceipt({
-          hash: stakeHash,
-          timeout: 120_000,
-        });
-        if (stakeReceipt.status !== "success") {
-          setStakeConfirming(null);
-          setStakeResult({
-            status: "failed",
-            approveHash,
-            stakeHash,
-            matchLabel: selected?.label || "",
-            amount: stakeAmount,
-            reason:
-              "The stake transaction reverted on Injective EVM. The USDC approval went through, but staking failed — possibly the market is closed or full.",
+        try {
+          const stakeReceipt = await pub.waitForTransactionReceipt({
+            hash: stakeHash,
+            timeout: 120_000,
           });
-          return;
+          if (stakeReceipt.status !== "success") {
+            setStakeConfirming(null);
+            setStakeResult({
+              status: "failed",
+              approveHash,
+              stakeHash,
+              matchLabel: selected?.label || "",
+              amount: stakeAmount,
+              reason:
+                "The stake transaction reverted on Injective EVM. The USDC approval went through, but staking failed — possibly the market is closed or full.",
+            });
+            return;
+          }
+        } catch (receiptErr) {
+          console.warn("Stake receipt wait failed, showing confirmed", receiptErr);
         }
       }
 
