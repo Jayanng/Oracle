@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useReadContract } from "wagmi";
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useAccount, useReadContract } from "wagmi";
 import {
   ORACLE_ABI,
   ORACLE_ADDRESS,
@@ -12,6 +13,12 @@ import { eventIcon, shortAddr } from "@/lib/utils";
 import { explorerAddress } from "@/lib/chain";
 
 export default function ExplorerPage() {
+  const router = useRouter();
+  const { isConnected } = useAccount();
+  useEffect(() => {
+    if (!isConnected) router.replace("/");
+  }, [isConnected, router]);
+
   const [filterType, setFilterType] = useState("all");
   const [search, setSearch] = useState("");
   const [selectedMatch, setSelectedMatch] = useState<number | null>(null);

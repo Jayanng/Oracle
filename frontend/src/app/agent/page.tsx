@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
-import { Bot, Send, Wrench, CreditCard, CheckCircle2 } from "lucide-react";
+import { useSearchParams, useRouter } from "next/navigation";
+import { useAccount } from "wagmi";
+import { Bot, Send } from "lucide-react";
 import { fetchFixtures, type PublicFixture } from "@/lib/fixtures";
 import { explorerTx } from "@/lib/chain";
 import { shortAddr } from "@/lib/utils";
@@ -21,6 +22,12 @@ type TraceEntry = {
 const CHAT_URL = "/api/chat";
 
 function AgentInner() {
+  const router = useRouter();
+  const { isConnected } = useAccount();
+  useEffect(() => {
+    if (!isConnected) router.replace("/");
+  }, [isConnected, router]);
+
   const params = useSearchParams();
   const q = params.get("q") || "";
   const [focus, setFocus] = useState(q);

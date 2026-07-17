@@ -12,7 +12,7 @@ const space = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: "CupEvent Oracle — Real-world events on Injective",
+  title: "KICKOFF — Real-world events on Injective",
   description:
     "On-chain event oracle + MCP agent for World Cup match events. x402 payments · CCTP rewards · Injective EVM.",
 };

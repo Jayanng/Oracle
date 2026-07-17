@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   useAccount,
   useChainId,
@@ -48,7 +49,11 @@ type HistoryItem = {
 };
 
 export default function RewardsPage() {
+  const router = useRouter();
   const { address, isConnected } = useAccount();
+  useEffect(() => {
+    if (!isConnected) router.replace("/");
+  }, [isConnected, router]);
   const config = useConfig();
   const chainId = useChainId();
   const pub = usePublicClient();
