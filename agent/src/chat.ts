@@ -264,6 +264,12 @@ function formatAnswer(tool: string, result: unknown): string {
     const s = result as Record<string, unknown>;
     const xg = s.xg as { home?: number; away?: number } | undefined;
     const possession = s.possession as { home?: number; away?: number } | undefined;
+    const shots = s.shots as { home?: number; away?: number } | undefined;
+    const form = s.form as { home?: string; away?: string } | undefined;
+    const prediction = s.prediction as { winner?: string; confidence?: string; reasoning?: string } | undefined;
+    const h2h = s.h2h as string | undefined;
+    const score = s.score as { home?: number; away?: number } | undefined;
+    const status = s.status as string | undefined;
     const x402 = s._x402 as
       | {
           paid?: boolean;
@@ -276,19 +282,43 @@ function formatAnswer(tool: string, result: unknown): string {
     const explorer =
       process.env.INJ_EVM_EXPLORER ||
       "https://testnet.blockscout.injective.network";
+
+    const homeName = (s.home as string) || "Home";
+    const awayName = (s.away as string) || "Away";
+    const fixtureName = (s._fixture as string) || `${homeName} vs ${awayName}`;
+    const statusEmoji = status === "FT" ? "🏁" : status === "LIVE" || status === "HT" ? "🔴" : "📋";
+    const predEmoji = prediction?.confidence === "high" ? "⭐" : prediction?.confidence === "medium" ? "⚡" : "🤝";
+
+    let lines = `**${fixtureName}** ${statusEmoji} ${status || ""}`;
+    if (score && (score.home != null || score.away != null)) {
+      lines += `\n📊 Score: ${homeName} **${score.home ?? 0}** – **${score.away ?? 0}** ${awayName}`;
+    }
+    if (xg) lines += `\n🎯 xG: ${homeName} **${xg.home ?? "?"}** – **${xg.away ?? "?"}** ${awayName}`;
+    if (shots) lines += `\n🥅 Shots: ${homeName} **${shots.home ?? "?"}** – **${shots.away ?? "?"}** ${awayName}`;
+    if (possession) lines += `\n⚽ Possession: ${homeName} **${possession.home ?? "?"}%** – **${possession.away ?? "?"}%** ${awayName}`;
+    if (form) lines += `\n📈 Form: ${homeName} **${form.home || "—"}** — ${awayName} **${form.away || "—"}**`;
+    if (h2h) lines += `\n🔄 H2H: ${h2h}`;
+    if (prediction?.winner) {
+      lines += `\n${predEmoji} Prediction: **${prediction.winner}** (${prediction.confidence || ""})`;
+      if (prediction.reasoning) lines += ` — ${prediction.reasoning}`;
+    }
+
     let paid = "";
     if (s._paid || x402?.paid) {
       paid = `\n\n💳 **x402**: premium data paid autonomously${
         x402?.protocol ? ` (${x402.protocol})` : ""
       }${x402?.network ? ` on ${x402.network}` : " on Injective"}.`;
       if (x402?.transaction && String(x402.transaction).startsWith("0x")) {
-        paid += `\n🔗 **On-chain settle tx:** \`${x402.transaction}\`\n${explorer}/tx/${x402.transaction}`;
+        const txHash = String(x402.transaction);
+        const shortTx = `${txHash.slice(0, 10)}…${txHash.slice(-6)}`;
+        const txUrl = `${explorer}/tx/${txHash}`;
+        paid += `\n🔗 **Settle tx:** [${shortTx}](${txUrl})`;
       } else if (String(x402?.protocol || "").includes("demo")) {
         paid +=
           "\n_Note: demo-eip712 is signature-only (not a USDC transfer on explorer). Use official mode for verifiable settle._";
       }
     }
-    return `Premium analytics for **${s._fixture || "fixture"}**:\n- xG: ${xg?.home ?? "?"} – ${xg?.away ?? "?"}\n- Possession: ${possession?.home ?? "?"}% – ${possession?.away ?? "?"}%\n- ${(s.narrative as string) || ""}${paid}`;
+    return lines + paid;
   }
   if (tool === "settle_match") {
     const r = result as { hash: string; _fixture?: string };

@@ -351,7 +351,7 @@ function TraceCard({ entry }: { entry: TraceEntry }) {
 }
 
 function MessageBody({ text }: { text: string }) {
-  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`|\n)/g);
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)]+\)|\n)/g);
   return (
     <span className="whitespace-pre-wrap">
       {parts.map((p, i) => {
@@ -367,6 +367,20 @@ function MessageBody({ text }: { text: string }) {
               {p.slice(1, -1)}
             </code>
           );
+        const linkMatch = p.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
+        if (linkMatch) {
+          return (
+            <a
+              key={i}
+              href={linkMatch[2]}
+              target="_blank"
+              rel="noreferrer"
+              className="text-cyan-accent underline decoration-dotted underline-offset-2 hover:text-cyan-300 font-mono text-[12px]"
+            >
+              {linkMatch[1]}
+            </a>
+          );
+        }
         return <span key={i}>{p}</span>;
       })}
     </span>

@@ -26,6 +26,7 @@ import {
   TOKENS,
 } from "@injectivelabs/x402/networks";
 import type { Hex, Address } from "viem";
+import { computeAnalytics } from "./analytics.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, "../../.env") });
@@ -94,20 +95,36 @@ app.get("/health", (_req, res) => {
   });
 });
 
-function premiumPayload(matchId: number, protocol: string) {
-  return {
-    matchId,
-    xg: { home: 1.34, away: 1.87 },
-    possession: { home: 44, away: 56 },
-    shots: { home: 9, away: 14 },
-    keyPasses: { home: 6, away: 11 },
-    narrative:
-      "Away side leads in xG, possession, and shots — indicates stronger attacking performance.",
-    _paid: true,
-    _protocol: protocol,
-    _network: NETWORK,
-    _chainId: CHAIN_ID,
-  };
+async function premiumPayload(matchId: number, protocol: string) {
+  try {
+    const stats = await computeAnalytics(matchId);
+    return {
+      ...stats,
+      _paid: true,
+      _protocol: protocol,
+      _network: NETWORK,
+      _chainId: CHAIN_ID,
+    };
+  } catch (e) {
+    console.warn(
+      "[x402] analytics fetch failed, using fallback:",
+      e instanceof Error ? e.message : e
+    );
+    return {
+      matchId,
+      xg: { home: 1.34, away: 1.87 },
+      possession: { home: 44, away: 56 },
+      shots: { home: 9, away: 14 },
+      keyPasses: { home: 6, away: 11 },
+      narrative:
+        "Away side leads in xG, possession, and shots — indicates stronger attacking performance.",
+      _paid: true,
+      _protocol: protocol,
+      _network: NETWORK,
+      _chainId: CHAIN_ID,
+      _source: "hardcoded-fallback",
+    };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -161,7 +178,7 @@ if (MODE === "official") {
     )
   );
 
-  app.get("/premium-stats", (req, res) => {
+  app.get("/premium-stats", async (req, res) => {
     const matchId = Number(req.query.matchId || 0);
     paymentLog.unshift({
       at: new Date().toISOString(),
@@ -172,7 +189,7 @@ if (MODE === "official") {
       asset: CIRCLE_USDC,
     });
     res.json(
-      premiumPayload(matchId, "@injectivelabs/x402-eip3009")
+      await premiumPayload(matchId, "@injectivelabs/x402-eip3009")
     );
   });
 
@@ -266,7 +283,7 @@ if (MODE === "official") {
         mode: "demo",
       });
 
-      res.json(premiumPayload(matchId, "x402-demo-eip712-v1"));
+      res.json(await premiumPayload(matchId, "x402-demo-eip712-v1"));
     } catch (e) {
       res.status(402).json({
         error: "invalid payment header",

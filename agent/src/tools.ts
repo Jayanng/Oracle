@@ -625,21 +625,36 @@ async function findRecentUsdcTransferTx(
   }
 }
 
-/** Deterministic premium-stats payload (mirrors x402-endpoint premiumPayload). */
-function premiumStatsFallback(matchId: number): Record<string, unknown> {
-  return {
-    matchId,
-    xg: { home: 1.34, away: 1.87 },
-    possession: { home: 44, away: 56 },
-    shots: { home: 9, away: 14 },
-    keyPasses: { home: 6, away: 11 },
-    narrative:
-      "Away side leads in xG, possession, and shots — indicates stronger attacking performance.",
-    _paid: true,
-    _protocol: "@injectivelabs/x402-eip3009",
-    _network: `eip155:${Number(process.env.INJ_EVM_CHAIN_ID || "1439")}`,
-    _chainId: Number(process.env.INJ_EVM_CHAIN_ID || "1439"),
-  };
+/** Deterministic premium-stats payload — fetches real analytics from feeder. */
+async function premiumStatsFallback(matchId: number): Promise<Record<string, unknown>> {
+  try {
+    const FEEDER = process.env.FEEDER_URL || "http://127.0.0.1:4030";
+    const { data } = await axios.get(`${FEEDER}/premium-stats/${matchId}`, {
+      timeout: 15_000,
+    });
+    return {
+      ...data,
+      _paid: true,
+      _protocol: "@injectivelabs/x402-eip3009",
+      _network: `eip155:${Number(process.env.INJ_EVM_CHAIN_ID || "1439")}`,
+      _chainId: Number(process.env.INJ_EVM_CHAIN_ID || "1439"),
+    };
+  } catch {
+    return {
+      matchId,
+      xg: { home: 1.34, away: 1.87 },
+      possession: { home: 44, away: 56 },
+      shots: { home: 9, away: 14 },
+      keyPasses: { home: 6, away: 11 },
+      narrative:
+        "Away side leads in xG, possession, and shots — indicates stronger attacking performance.",
+      _paid: true,
+      _protocol: "@injectivelabs/x402-eip3009",
+      _network: `eip155:${Number(process.env.INJ_EVM_CHAIN_ID || "1439")}`,
+      _chainId: Number(process.env.INJ_EVM_CHAIN_ID || "1439"),
+      _source: "hardcoded-fallback",
+    };
+  }
 }
 
 /** Build the canonical x402 success result returned to the agent chat. */
@@ -690,8 +705,9 @@ async function recoverSettledResult(args: {
     args.payer,
     args.amount
   );
+  const fallbackStats = await premiumStatsFallback(args.matchId);
   return {
-    ...premiumStatsFallback(args.matchId),
+    ...fallbackStats,
     _x402: {
       paid: true,
       protocol: "@injectivelabs/x402",
