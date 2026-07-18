@@ -44,7 +44,7 @@ const CIRCLE_USDC =
   (TOKENS[NETWORK]?.USDC?.address as Address | undefined) ||
   (CHAIN_ID === 1776
     ? "0xa00C59fF5a080D2b954d0c75e46E22a0c371235a"
-    : "0x0C382e685bbeeFE5d3d9C29e29E341fEE8E84C5d") as Address;
+    : "0x670A694747c84f3B5EA1F7979eF10427fe5b1194") as Address;
 
 const RECEIVER = (process.env.X402_RECEIVER_ADDRESS ||
   process.env.AGENT_ADDRESS ||

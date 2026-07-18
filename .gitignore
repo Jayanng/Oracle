@@ -9,6 +9,7 @@ broadcast/
 dist/
 coverage/
 *.log
+*.err
 .DS_Store
 # Foundry / Solidity deps only — do NOT use a bare "lib/" rule
 # (it hid frontend/src/lib and broke deploys)

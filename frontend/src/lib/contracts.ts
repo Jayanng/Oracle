@@ -372,6 +372,48 @@ export const DEMO_MATCH_META: Record<number, MatchMeta> = {
     homeFlag: "🇦🇷",
     awayFlag: "🇫🇷",
   },
+  2026002: {
+    home: "Brazil",
+    away: "England",
+    homeFlag: "🇧🇷",
+    awayFlag: "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
+  },
+  2026003: {
+    home: "Spain",
+    away: "Germany",
+    homeFlag: "🇪🇸",
+    awayFlag: "🇩🇪",
+  },
+  2026004: {
+    home: "Portugal",
+    away: "Netherlands",
+    homeFlag: "🇵🇹",
+    awayFlag: "🇳🇱",
+  },
+  2026005: {
+    home: "Italy",
+    away: "Croatia",
+    homeFlag: "🇮🇹",
+    awayFlag: "🇭🇷",
+  },
+  2026006: {
+    home: "Belgium",
+    away: "Uruguay",
+    homeFlag: "🇧🇪",
+    awayFlag: "🇺🇾",
+  },
+  2026007: {
+    home: "United States",
+    away: "Mexico",
+    homeFlag: "🇺🇸",
+    awayFlag: "🇲🇽",
+  },
+  2026008: {
+    home: "Japan",
+    away: "South Korea",
+    homeFlag: "🇯🇵",
+    awayFlag: "🇰🇷",
+  },
   855736: {
     home: "Qatar",
     away: "Ecuador",

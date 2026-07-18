@@ -183,7 +183,7 @@ export const tools = {
       (process.env.CIRCLE_USDC_TESTNET as `0x${string}` | undefined) ||
       (chainId === 1776
         ? "0xa00C59fF5a080D2b954d0c75e46E22a0c371235a"
-        : "0x0C382e685bbeeFE5d3d9C29e29E341fEE8E84C5d");
+        : "0x670A694747c84f3B5EA1F7979eF10427fe5b1194");
 
     if (!wantOfficial || !pk) {
       try {
@@ -193,7 +193,7 @@ export const tools = {
       }
     }
 
-    const PAYMENT_AMOUNT = BigInt(process.env.X402_AMOUNT || "10000");
+    const PAYMENT_AMOUNT = BigInt(process.env.X402_AMOUNT || "100000");
     const agentAccount = privateKeyToAccount(
       pk.startsWith("0x") ? pk : (`0x${pk}` as `0x${string}`)
     );
@@ -381,7 +381,7 @@ export const tools = {
     const usdcToken = (
       chainId === 1776
         ? "0xa00C59fF5a080D2b954d0c75e46E22a0c371235a"
-        : process.env.USDC_TESTNET_ADDRESS || "0x0C382e685bbeeFE5d3d9C29e29E341fEE8E84C5d"
+        : process.env.USDC_TESTNET_ADDRESS || "0x670A694747c84f3B5EA1F7979eF10427fe5b1194"
     ) as `0x${string}`;
     const amountRaw = BigInt(Math.floor(parseFloat(perWinnerAmountUsdc) * 1e6));
 
