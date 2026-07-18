@@ -797,7 +797,8 @@ app.post("/x402-premium", async (req, res) => {
 app.post("/api/whitelist", async (req, res) => {
   try {
     const { dropId, wallet } = req.body;
-    if (!dropId || !wallet) throw new Error("dropId and wallet required");
+    if (dropId === undefined || dropId === null || !wallet)
+      throw new Error("dropId and wallet required");
     const result = await tools.whitelistDrop({ dropId, wallets: [wallet] });
     res.json(result);
   } catch (e) {

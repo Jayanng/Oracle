@@ -95,7 +95,9 @@ contract OracleTreasury is AccessControl {
         usdc.approve(tokenMessenger, amount);
         // CCTP v2 depositForBurn: amount, destDomain, mintRecipient, burnToken,
         //                          destinationCaller (0=anyone), maxFee (0=standard), minFinalityThreshold (2000=finalized)
-        (bool success, bytes memory data) = tokenMessenger.call(
+        // CCTP v2 depositForBurn returns void; the nonce is derived off-chain
+        // from the MessageSent event / Circle attestation.
+        (bool success, ) = tokenMessenger.call(
             abi.encodeWithSignature(
                 "depositForBurn(uint256,uint32,bytes32,address,bytes32,uint256,uint32)",
                 amount,
@@ -108,7 +110,7 @@ contract OracleTreasury is AccessControl {
             )
         );
         require(success, "CCTP burn failed");
-        nonce = abi.decode(data, (uint64));
+        nonce = 0;
 
         emit FeederWithdrewCrossChain(msg.sender, amount, destinationDomain, mintRecipient, nonce);
     }

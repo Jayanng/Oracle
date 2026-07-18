@@ -196,9 +196,11 @@ contract FanDrops is AccessControl {
             d.active = false;
         }
 
-        // Approve and burn via TokenMessenger (CCTP v2)
+        // Approve and burn via TokenMessenger (CCTP v2).
+        // CCTP v2 depositForBurn returns void; the nonce is derived off-chain
+        // from the MessageSent event / Circle attestation.
         usdc.approve(tokenMessenger, d.perWinnerAmount);
-        (bool success, bytes memory data) = tokenMessenger.call(
+        (bool success, ) = tokenMessenger.call(
             abi.encodeWithSignature(
                 "depositForBurn(uint256,uint32,bytes32,address,bytes32,uint256,uint32)",
                 d.perWinnerAmount,
@@ -211,10 +213,8 @@ contract FanDrops is AccessControl {
             )
         );
         require(success, "CCTP burn failed");
-        require(data.length >= 32, "bad CCTP response");
-        uint64 nonce = abi.decode(data, (uint64));
 
-        emit ClaimedCrossChain(dropId, msg.sender, destinationDomain, mintRecipient, nonce);
+        emit ClaimedCrossChain(dropId, msg.sender, destinationDomain, mintRecipient, 0);
     }
 
     /// @notice Agent can trigger cross-chain claim on behalf of a whitelisted wallet.
@@ -236,9 +236,11 @@ contract FanDrops is AccessControl {
             d.active = false;
         }
 
-        // Approve and burn via TokenMessenger (CCTP v2)
+        // Approve and burn via TokenMessenger (CCTP v2).
+        // CCTP v2 depositForBurn returns void; the nonce is derived off-chain
+        // from the MessageSent event / Circle attestation.
         usdc.approve(tokenMessenger, d.perWinnerAmount);
-        (bool success, bytes memory data) = tokenMessenger.call(
+        (bool success, ) = tokenMessenger.call(
             abi.encodeWithSignature(
                 "depositForBurn(uint256,uint32,bytes32,address,bytes32,uint256,uint32)",
                 d.perWinnerAmount,
@@ -251,10 +253,8 @@ contract FanDrops is AccessControl {
             )
         );
         require(success, "CCTP burn failed");
-        require(data.length >= 32, "bad CCTP response");
-        uint64 nonce = abi.decode(data, (uint64));
 
-        emit ClaimedCrossChain(dropId, recipient, destinationDomain, mintRecipient, nonce);
+        emit ClaimedCrossChain(dropId, recipient, destinationDomain, mintRecipient, 0);
     }
 
     /// @notice Check if a drop is active.
