@@ -7,57 +7,40 @@ export const INJECTIVE_EVM_CHAIN_ID = Number(
   process.env.NEXT_PUBLIC_INJ_EVM_CHAIN_ID || "1439"
 );
 
-const rpc =
+const injRpc =
   process.env.NEXT_PUBLIC_INJ_EVM_RPC ||
   "https://k8s.testnet.json-rpc.injective.network";
 
-const explorer =
+const injExplorer =
   process.env.NEXT_PUBLIC_INJ_EVM_EXPLORER ||
   "https://testnet.blockscout.injective.network";
 
-/**
- * Single-chain app config. Native gas token is INJ (not ETH).
- * Drops use USDC ERC-20 on this chain.
- */
 export const injectiveEvmTestnet = {
   id: INJECTIVE_EVM_CHAIN_ID,
   name: "Injective EVM Testnet",
-  nativeCurrency: {
-    name: "Injective",
-    symbol: "INJ",
-    decimals: 18,
-  },
-  rpcUrls: {
-    default: { http: [rpc] },
-    public: { http: [rpc] },
-  },
-  blockExplorers: {
-    default: {
-      name: "Injective Testnet Blockscout",
-      url: explorer,
-    },
-  },
+  nativeCurrency: { name: "Injective", symbol: "INJ", decimals: 18 },
+  rpcUrls: { default: { http: [injRpc] }, public: { http: [injRpc] } },
+  blockExplorers: { default: { name: "Injective Testnet Blockscout", url: injExplorer } },
+  testnet: true,
+} as const satisfies Chain;
+
+/** Sepolia testnet — CCTP destination for cross-chain claims. */
+export const sepolia = {
+  id: 11_155_111,
+  name: "Ethereum Sepolia",
+  nativeCurrency: { name: "Sepolia Ether", symbol: "ETH", decimals: 18 },
+  rpcUrls: { default: { http: ["https://rpc.sepolia.org"] }, public: { http: ["https://rpc.sepolia.org"] } },
+  blockExplorers: { default: { name: "Etherscan", url: "https://sepolia.etherscan.io" } },
   testnet: true,
 } as const satisfies Chain;
 
 export const config = createConfig({
-  // Only Injective — MetaMask must not fall back to Ethereum for writes
-  chains: [injectiveEvmTestnet],
-  connectors: [
-    injected({
-      // Prefer the chain we care about when the wallet supports multi-chain
-      shimDisconnect: true,
-    }),
-  ],
+  chains: [injectiveEvmTestnet, sepolia],
+  connectors: [injected({ shimDisconnect: true })],
   transports: {
-    [injectiveEvmTestnet.id]: http(rpc),
+    [injectiveEvmTestnet.id]: http(injRpc),
+    [sepolia.id]: http("https://rpc.sepolia.org"),
   },
-  // Disable EIP-6963 multi-provider discovery. When true (the wagmi default),
-  // wagmi dispatches `eip6963:requestProvider`, which makes some wallet
-  // extensions re-inject `window.ethereum` via Object.defineProperty and throw
-  // `TypeError: Cannot redefine property: ethereum` when another provider has
-  // already claimed it as non-configurable. This app is single-chain with one
-  // injected connector, so we read `window.ethereum` directly instead.
   multiInjectedProviderDiscovery: false,
   ssr: true,
 });

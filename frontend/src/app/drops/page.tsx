@@ -9,8 +9,9 @@ import {
   usePublicClient,
   useReadContract,
   useWriteContract,
+  useSwitchChain,
 } from "wagmi";
-import { parseUnits, pad, type Address } from "viem";
+import { parseUnits, pad, createPublicClient, http, type Address } from "viem";
 import { toast } from "sonner";
 import {
   DROPS_ADDRESS,
@@ -22,6 +23,9 @@ import {
   ORACLE_ABI,
   ORACLE_ADDRESS,
   CCTP_DOMAINS,
+  MESSAGE_TRANSMITTER_ADDRESS,
+  MESSAGE_TRANSMITTER_ABI,
+  CHAIN_CONFIG,
 } from "@/lib/contracts";
 import { shortAddr } from "@/lib/utils";
 import { ensureInjectiveChain, isInjectiveChain } from "@/lib/ensureInjective";
@@ -49,6 +53,7 @@ export default function DropsPage() {
   const [tab, setTab] = useState<Tab>("drops");
   const [fixtures, setFixtures] = useState<PublicFixture[]>([]);
   const { writeContractAsync, isPending } = useWriteContract();
+  const { switchChainAsync } = useSwitchChain();
   const onInjective = isInjectiveChain(chainId);
 
   const hasDrops = Boolean(DROPS_ADDRESS && DROPS_ADDRESS.length === 42);
@@ -242,6 +247,11 @@ export default function DropsPage() {
         updateLastTxStep({ status: "confirmed" });
       } else {
         const mintRecipient = pad(address, { size: 32 }) as `0x${string}`;
+        const destConfig = CHAIN_CONFIG[claimDest];
+        const destLabel = destConfig?.label || `domain ${claimDest}`;
+
+        // Step 1: Burn USDC on Injective via CCTP
+        updateLastTxStep({ label: `Burn USDC → ${destLabel}`, status: "pending" });
         const hash = await writeContractAsync({
           chainId: INJECTIVE_EVM_CHAIN_ID,
           address: DROPS_ADDRESS,
@@ -253,6 +263,67 @@ export default function DropsPage() {
         if (pub) {
           const receipt = await pub.waitForTransactionReceipt({ hash, timeout: 120_000 });
           if (receipt.status !== "success") throw new Error("Cross-chain claim reverted on-chain");
+        }
+        updateLastTxStep({ status: "confirmed" });
+
+        // Step 2: Poll Circle Attestation API for the burn message
+        appendTxStep({ label: `Waiting for Circle attestation…`, status: "pending" });
+        let attestationData: { message: string; attestation: string } | null = null;
+        const maxPolls = 60;
+        for (let attempt = 1; attempt <= maxPolls; attempt++) {
+          await new Promise((r) => setTimeout(r, 3000));
+          try {
+            const res = await fetch(
+              `/api/cctp/attestation?txHash=${hash}&sourceDomain=29`
+            );
+            const data = await res.json();
+            const msg = data.messages?.[0];
+            if (msg?.status === "complete" && msg.message && msg.attestation) {
+              attestationData = { message: msg.message, attestation: msg.attestation };
+              break;
+            }
+          } catch { /* retry */ }
+        }
+        if (!attestationData) {
+          updateLastTxStep({ status: "error" });
+          throw new Error("Attestation not ready after 3 minutes. Check Circle Iris API.");
+        }
+        updateLastTxStep({ status: "confirmed" });
+
+        // Step 3: Switch wallet to destination chain and call receiveMessage
+        appendTxStep({
+          label: `Mint USDC on ${destLabel}`,
+          status: "pending",
+          domain: claimDest,
+        });
+        try {
+          if (destConfig && switchChainAsync) {
+            await switchChainAsync({ chainId: destConfig.chainId });
+          }
+        } catch { /* user may cancel — proceed anyway */ }
+
+        const mintHash = await writeContractAsync({
+          chainId: destConfig?.chainId,
+          address: MESSAGE_TRANSMITTER_ADDRESS,
+          abi: MESSAGE_TRANSMITTER_ABI,
+          functionName: "receiveMessage",
+          args: [
+            attestationData.message as `0x${string}`,
+            attestationData.attestation as `0x${string}`,
+          ],
+        });
+        updateLastTxStep({ txHash: mintHash, domain: claimDest });
+        // Wait for mint tx on destination chain
+        const destRpc =
+          destConfig?.chainId === 11_155_111
+            ? "https://rpc.sepolia.org"
+            : `https://rpc.${(destConfig?.label || "").toLowerCase().replace(/\s+/g, "")}.org`;
+        try {
+          const destPub = createPublicClient({ transport: http(destRpc) });
+          const mintReceipt = await destPub.waitForTransactionReceipt({ hash: mintHash, timeout: 120_000 });
+          if (mintReceipt.status !== "success") throw new Error("Mint reverted on destination chain");
+        } catch (e) {
+          console.warn("Could not verify mint receipt on destination chain:", e);
         }
         updateLastTxStep({ status: "confirmed" });
       }
@@ -369,6 +440,10 @@ export default function DropsPage() {
         updateLastTxStep({ status: "confirmed" });
       } else {
         const mintRecipient = pad(address, { size: 32 }) as `0x${string}`;
+        const destConfig = CHAIN_CONFIG[withdrawDest];
+        const destLabel = destConfig?.label || `domain ${withdrawDest}`;
+
+        updateLastTxStep({ label: `Burn USDC → ${destLabel}`, status: "pending" });
         const hash = await writeContractAsync({
           chainId: INJECTIVE_EVM_CHAIN_ID,
           address: TREASURY_ADDRESS,
@@ -380,6 +455,54 @@ export default function DropsPage() {
         if (pub) {
           const receipt = await pub.waitForTransactionReceipt({ hash, timeout: 120_000 });
           if (receipt.status !== "success") throw new Error("Cross-chain withdraw reverted on-chain");
+        }
+        updateLastTxStep({ status: "confirmed" });
+
+        // Step 2: Poll attestation
+        appendTxStep({ label: `Waiting for Circle attestation…`, status: "pending" });
+        let ad: { message: string; attestation: string } | null = null;
+        for (let attempt = 1; attempt <= 60; attempt++) {
+          await new Promise((r) => setTimeout(r, 3000));
+          try {
+            const res = await fetch(`/api/cctp/attestation?txHash=${hash}&sourceDomain=29`);
+            const data = await res.json();
+            const msg = data.messages?.[0];
+            if (msg?.status === "complete" && msg.message && msg.attestation) {
+              ad = { message: msg.message, attestation: msg.attestation };
+              break;
+            }
+          } catch { /* retry */ }
+        }
+        if (!ad) {
+          updateLastTxStep({ status: "error" });
+          throw new Error("Attestation not ready after 3 minutes");
+        }
+        updateLastTxStep({ status: "confirmed" });
+
+        // Step 3: Mint on destination chain
+        appendTxStep({ label: `Mint USDC on ${destLabel}`, status: "pending", domain: withdrawDest });
+        try {
+          if (destConfig && switchChainAsync) {
+            await switchChainAsync({ chainId: destConfig.chainId });
+          }
+        } catch { /* user may cancel */ }
+        const mintHash = await writeContractAsync({
+          chainId: destConfig?.chainId,
+          address: MESSAGE_TRANSMITTER_ADDRESS,
+          abi: MESSAGE_TRANSMITTER_ABI,
+          functionName: "receiveMessage",
+          args: [ad.message as `0x${string}`, ad.attestation as `0x${string}`],
+        });
+        updateLastTxStep({ txHash: mintHash, domain: withdrawDest });
+        const destRpc = destConfig?.chainId === 11_155_111
+          ? "https://rpc.sepolia.org"
+          : `https://rpc.${(destConfig?.label || "").toLowerCase().replace(/\s+/g, "")}.org`;
+        try {
+          const destPub = createPublicClient({ transport: http(destRpc) });
+          const mr = await destPub.waitForTransactionReceipt({ hash: mintHash, timeout: 120_000 });
+          if (mr.status !== "success") throw new Error("Mint reverted");
+        } catch (e) {
+          console.warn("Could not verify mint:", e);
         }
         updateLastTxStep({ status: "confirmed" });
       }

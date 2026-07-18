@@ -93,13 +93,18 @@ contract OracleTreasury is AccessControl {
         totalPaidOut += amount;
 
         usdc.approve(tokenMessenger, amount);
+        // CCTP v2 depositForBurn: amount, destDomain, mintRecipient, burnToken,
+        //                          destinationCaller (0=anyone), maxFee (0=standard), minFinalityThreshold (2000=finalized)
         (bool success, bytes memory data) = tokenMessenger.call(
             abi.encodeWithSignature(
-                "depositForBurn(uint256,uint32,bytes32,address)",
+                "depositForBurn(uint256,uint32,bytes32,address,bytes32,uint256,uint32)",
                 amount,
                 destinationDomain,
                 mintRecipient,
-                address(usdc)
+                address(usdc),
+                bytes32(0),
+                uint256(0),
+                uint32(2000)
             )
         );
         require(success, "CCTP burn failed");

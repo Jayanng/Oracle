@@ -8,6 +8,8 @@ export interface TxStep {
   label: string;
   status: "pending" | "confirmed" | "error";
   txHash?: `0x${string}`;
+  /** CCTP destination domain for per-chain explorer links. */
+  domain?: number;
 }
 
 export function TxModal({
@@ -77,7 +79,7 @@ export function TxModal({
                 </div>
                 {step.txHash && (
                   <a
-                    href={explorerTx(step.txHash)}
+                    href={explorerTx(step.txHash, step.domain)}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="mt-1 inline-flex items-center gap-1 text-xs text-cyan-accent hover:underline font-mono"

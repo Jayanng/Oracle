@@ -196,15 +196,18 @@ contract FanDrops is AccessControl {
             d.active = false;
         }
 
-        // Approve and burn via TokenMessenger
+        // Approve and burn via TokenMessenger (CCTP v2)
         usdc.approve(tokenMessenger, d.perWinnerAmount);
         (bool success, bytes memory data) = tokenMessenger.call(
             abi.encodeWithSignature(
-                "depositForBurn(uint256,uint32,bytes32,address)",
+                "depositForBurn(uint256,uint32,bytes32,address,bytes32,uint256,uint32)",
                 d.perWinnerAmount,
                 destinationDomain,
                 mintRecipient,
-                address(usdc)
+                address(usdc),
+                bytes32(0),
+                uint256(0),
+                uint32(2000)
             )
         );
         require(success, "CCTP burn failed");
@@ -233,15 +236,18 @@ contract FanDrops is AccessControl {
             d.active = false;
         }
 
-        // Approve and burn via TokenMessenger
+        // Approve and burn via TokenMessenger (CCTP v2)
         usdc.approve(tokenMessenger, d.perWinnerAmount);
         (bool success, bytes memory data) = tokenMessenger.call(
             abi.encodeWithSignature(
-                "depositForBurn(uint256,uint32,bytes32,address)",
+                "depositForBurn(uint256,uint32,bytes32,address,bytes32,uint256,uint32)",
                 d.perWinnerAmount,
                 destinationDomain,
                 mintRecipient,
-                address(usdc)
+                address(usdc),
+                bytes32(0),
+                uint256(0),
+                uint32(2000)
             )
         );
         require(success, "CCTP burn failed");
