@@ -8,7 +8,7 @@ function addr(env: string | undefined, fallback = ""): Address {
 
 export const ORACLE_ADDRESS = addr(
   process.env.NEXT_PUBLIC_ORACLE_ADDRESS,
-  "0xb7f6a30cc6a27c4c36000383651454453955e9f2"
+  ""
 );
 export const DROPS_ADDRESS = addr(
   process.env.NEXT_PUBLIC_DROPS_ADDRESS,
@@ -20,12 +20,26 @@ export const TREASURY_ADDRESS = addr(
 );
 export const USDC_ADDRESS = addr(
   process.env.NEXT_PUBLIC_USDC_ADDRESS,
-  "0x670A694747c84f3B5EA1F7979eF10427fe5b1194"
+  "0x0C382e685bbeeFE5d3d9C29e29E341fEE8E84C5d"
 );
 export const CCTP_TOKEN_MESSENGER = addr(
   process.env.NEXT_PUBLIC_CCTP_TOKEN_MESSENGER,
   "0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA"
 );
+
+/**
+ * Circle CCTP destination domains (testnet).
+ * Source: Circle CCTP docs + Injective USDC/CCTP docs.
+ * Injective testnet & mainnet both use domain 29.
+ * NB: Arbitrum Sepolia = 2 (NOT 1); Avalanche Fuji = 1.
+ */
+export const CCTP_DOMAINS: { domain: number; label: string }[] = [
+  { domain: 29, label: "Injective (same-chain)" },
+  { domain: 0, label: "Ethereum Sepolia" },
+  { domain: 6, label: "Base Sepolia" },
+  { domain: 2, label: "Arbitrum Sepolia" },
+  { domain: 1, label: "Avalanche Fuji" },
+];
 
 export type OracleEvent = {
   matchId: bigint | number;

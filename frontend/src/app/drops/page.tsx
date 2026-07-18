@@ -21,6 +21,7 @@ import {
   ERC20_ABI,
   ORACLE_ABI,
   ORACLE_ADDRESS,
+  CCTP_DOMAINS,
 } from "@/lib/contracts";
 import { shortAddr } from "@/lib/utils";
 import { explorerAddress, explorerTx } from "@/lib/chain";
@@ -568,11 +569,11 @@ export default function DropsPage() {
                     onChange={(e) => setWithdrawDest(Number(e.target.value))}
                     className="w-full rounded-lg border border-ink-border bg-ink px-3 py-2 text-sm"
                   >
-                    <option value={29}>Injective (same-chain)</option>
-                    <option value={0}>Ethereum Sepolia</option>
-                    <option value={6}>Base Sepolia</option>
-                    <option value={1}>Arbitrum Sepolia</option>
-                    <option value={1}>Avalanche Fuji</option>
+                    {CCTP_DOMAINS.map((d) => (
+                      <option key={d.domain} value={d.domain}>
+                        {d.label}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <button
@@ -600,9 +601,11 @@ export default function DropsPage() {
                 onChange={(e) => setClaimDest(Number(e.target.value))}
                 className="w-full rounded-lg border border-ink-border bg-ink px-3 py-2 text-sm"
               >
-                <option value={29}>Injective (same-chain)</option>
-                <option value={0}>Ethereum Sepolia</option>
-                <option value={6}>Base Sepolia</option>
+                {CCTP_DOMAINS.map((d) => (
+                  <option key={d.domain} value={d.domain}>
+                    {d.label}
+                  </option>
+                ))}
               </select>
             </div>
             <div className="flex gap-2">

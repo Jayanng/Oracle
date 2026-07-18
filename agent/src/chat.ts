@@ -85,7 +85,7 @@ const toolSchema: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: "function",
     function: {
       name: "get_premium_stats",
-      description: "Buy premium analytics via x402 for a fixture",
+      description: "Buy premium match analytics via x402. Returns calibrated win probabilities (home/draw/away), most-likely scorelines, expected goals, form, H2H, and a model/provenance block. Use for match previews and outcome predictions",
       parameters: {
         type: "object",
         properties: {
@@ -398,6 +398,12 @@ function formatAnswer(tool: string, result: unknown): string {
       `For demos without Circle USDC, set \`X402_MODE=demo\` on the x402 service and restart it.`
     );
   }
+  if (r?._error === "analytics_unavailable") {
+    return (
+      `💳 **Payment processed**, but premium analytics are temporarily unavailable.\n\n` +
+      `${r.message || "The feeder could not be reached."} No data was fabricated — please retry shortly.`
+    );
+  }
 
   switch (tool) {
     case "list_fixtures": {
@@ -660,7 +666,19 @@ app.post("/chat", async (req, res) => {
           "Never invent match IDs — always ask the user or use list_events to discover them. " +
           "When paying drops or withdrawing earnings, ask the user which destination chain they want " +
           "(Injective same-chain, Ethereum Sepolia, Base Sepolia, Arbitrum Sepolia, or Avalanche Fuji). " +
-          "If they don't specify, default to same-chain.",
+          "CCTP destination domain numbers: Injective=29 (same-chain), Ethereum Sepolia=0, Base Sepolia=6, Arbitrum Sepolia=2, Avalanche Fuji=1. " +
+          "If they don't specify, default to same-chain (29).\n\n" +
+"PREMIUM ANALYTICS - how to interpret get_premium_stats output:\n" +
+"The tool returns a probabilistic match model (Poisson/Dixon-Coles). Always lean on these fields when writing a preview:\n" +
+"  - probabilities: { home, draw, away } - calibrated three-way win probabilities (0..1). Lead with these.\n" +
+"  - scorelines: top 5 most-likely scorelines with probabilities. Mention the top 1-2.\n" +
+"  - expectedGoals: { home, away } - the model's expected goals (xG).\n" +
+"  - prediction.winner + confidence - derived from the probabilities; do not contradict it.\n" +
+"  - model.inputs + model.dataCoverage - what data drove the prediction (elo-prior, api-football-history, world-cup-form, head-to-head, oracle-events). Cite this so the user knows the basis.\n" +
+"  - form, h2h, narrative - supporting qualitative context.\n" +
+"Do NOT just repeat a winner label. Give the three-way odds, the likeliest scoreline(s), expected goals, and the data coverage. " +
+"If model.inputs is only elo-prior (no history, no WC form), say confidence is lower and the prediction is prior-based. " +
+"For LIVE matches, probabilities are live win probabilities conditioned on the current score and minute.",
       },
       ...messages.map((m) => ({
         role: m.role as "user" | "assistant",

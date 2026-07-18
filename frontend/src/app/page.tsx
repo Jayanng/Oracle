@@ -144,6 +144,42 @@ export default function LandingPage() {
               </div>
             ))}
           </div>
+
+          {/* Use this oracle - code snippets for developers */}
+          <div className="mt-12 space-y-4">
+            <h2 className="font-display text-2xl font-semibold sm:text-3xl">
+              Use this oracle
+            </h2>
+            <p className="text-sm text-ink-muted">
+              Any team can query CupEventOracle today. Complementary to Pyth / Chainlink
+              price feeds — discrete, categorical real-world events.
+            </p>
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div className="card">
+                <div className="mb-2 text-xs font-medium text-cyan-accent">Solidity</div>
+                <pre className="overflow-x-auto rounded-lg bg-ink p-4 font-mono text-[11px] leading-relaxed text-ink-muted">{`interface ICupEventOracle {
+  function getLatestEvent(uint256 matchId)
+    external view returns (
+      uint256, uint64, uint32,
+      string memory, string memory,
+      string memory, address
+    );
+}
+
+// eventType == "final", details JSON: {"home":1,"away":1}
+`}</pre>
+              </div>
+              <div className="card">
+                <div className="mb-2 text-xs font-medium text-cyan-accent">viem</div>
+                <pre className="overflow-x-auto rounded-lg bg-ink p-4 font-mono text-[11px] leading-relaxed text-ink-muted">{`const events = await publicClient.readContract({
+  address: ORACLE,
+  abi: oracleAbi,
+  functionName: "getEvents",
+  args: [2026001n],
+});`}</pre>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
     </div>

@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAccount } from "wagmi";
 import { motion, AnimatePresence } from "framer-motion";
 import { fetchFixtures, statusLabel, type PublicFixture } from "@/lib/fixtures";
 import { explorerTx } from "@/lib/chain";
 import { shortAddr } from "@/lib/utils";
+import { ChevronDown, Search, Check, X } from "lucide-react";
 
 type PremiumStats = {
   home: string;
@@ -25,6 +26,10 @@ type PremiumStats = {
     reasoning: string;
   };
   narrative?: string;
+  probabilities?: { home: number; draw: number; away: number };
+  scorelines?: { score: string; probability: number }[];
+  expectedGoals?: { home: number; away: number };
+  model?: { type: string; inputs: string[]; dataCoverage: string };
   _paid?: boolean;
   _protocol?: string;
   _x402?: {
@@ -42,58 +47,20 @@ type PremiumStats = {
 type Status = "idle" | "loading" | "success" | "error";
 
 const TEAM_FLAGS: Record<string, string> = {
-  argentina: "🇦🇷",
-  brazil: "🇧🇷",
-  france: "🇫🇷",
-  germany: "🇩🇪",
-  italy: "🇮🇹",
-  spain: "🇪🇸",
-  england: "🏴󠁧󠁢󠁥󠁮󠁧󠁿",
-  portugal: "🇵🇹",
-  netherlands: "🇳🇱",
-  belgium: "🇧🇪",
-  croatia: "🇭🇷",
-  uruguay: "🇺🇾",
-  mexico: "🇲🇽",
-  "united states": "🇺🇸",
-  canada: "🇨🇦",
-  japan: "🇯🇵",
-  "south korea": "🇰🇷",
-  australia: "🇦🇺",
-  morocco: "🇲🇦",
-  senegal: "🇸🇳",
-  nigeria: "🇳🇬",
-  cameroon: "🇨🇲",
-  ghana: "🇬🇭",
-  tunisia: "🇹🇳",
-  algeria: "🇩🇿",
-  egypt: "🇪🇬",
-  "saudi arabia": "🇸🇦",
-  iran: "🇮🇷",
-  qatar: "🇶🇦",
-  ecuador: "🇪🇨",
-  peru: "🇵🇪",
-  colombia: "🇨🇴",
-  chile: "🇨🇱",
-  paraguay: "🇵🇾",
-  denmark: "🇩🇰",
-  sweden: "🇸🇪",
-  norway: "🇳🇴",
-  switzerland: "🇨🇭",
-  poland: "🇵🇱",
-  serbia: "🇷🇸",
-  ukraine: "🇺🇦",
-  turkey: "🇹🇷",
-  wales: "🏴󠁧󠁢󠁷󠁬󠁳󠁿",
-  scotland: "🏴󠁧󠁢󠁳󠁣󠁴󠁿",
-  hungary: "🇭🇺",
-  austria: "🇦🇹",
-  "czech republic": "🇨🇿",
-  slovakia: "🇸🇰",
-  romania: "🇷🇴",
-  bulgaria: "🇧🇬",
-  greece: "🇬🇷",
-  russia: "🇷🇺",
+  argentina: "🇦🇷", brazil: "🇧🇷", france: "🇫🇷", germany: "🇩🇪",
+  italy: "🇮🇹", spain: "🇪🇸", england: "🏴󠁧󠁢󠁥󠁮󠁧󠁿", portugal: "🇵🇹",
+  netherlands: "🇳🇱", belgium: "🇧🇪", croatia: "🇭🇷", uruguay: "🇺🇾",
+  mexico: "🇲🇽", "united states": "🇺🇸", canada: "🇨🇦", japan: "🇯🇵",
+  "south korea": "🇰🇷", australia: "🇦🇺", morocco: "🇲🇦", senegal: "🇸🇳",
+  nigeria: "🇳🇬", cameroon: "🇨🇲", ghana: "🇬🇭", tunisia: "🇹🇳",
+  algeria: "🇩🇿", egypt: "🇪🇬", "saudi arabia": "🇸🇦", iran: "🇮🇷",
+  qatar: "🇶🇦", ecuador: "🇪🇨", peru: "🇵🇪", colombia: "🇨🇴",
+  chile: "🇨🇱", paraguay: "🇵🇾", denmark: "🇩🇰", sweden: "🇸🇪",
+  norway: "🇳🇴", switzerland: "🇨🇭", poland: "🇵🇱", serbia: "🇷🇸",
+  ukraine: "🇺🇦", turkey: "🇹🇷", wales: "🏴󠁧󠁢󠁷󠁬󠁳󠁿",
+  scotland: "🏴󠁧󠁢󠁳󠁣󠁴󠁿", hungary: "🇭🇺", austria: "🇦🇹",
+  "czech republic": "🇨🇿", slovakia: "🇸🇰", romania: "🇷🇴",
+  bulgaria: "🇧🇬", greece: "🇬🇷", russia: "🇷🇺",
 };
 
 function flagFor(team: string): string {
@@ -136,15 +103,21 @@ export default function X402Page() {
   const [status, setStatus] = useState<Status>("idle");
   const [stats, setStats] = useState<PremiumStats | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     fetchFixtures().then((list) => {
       setFixtures(list);
-      if (list.length > 0 && !selectedKey) {
-        setSelectedKey(list[0]?.label || "");
-      }
     });
   }, []);
+
+  // Auto-select first fixture after fixtures load, or when connected
+  useEffect(() => {
+    if (fixtures.length > 0 && !selectedKey) {
+      setSelectedKey(fixtures[0]?.label || "");
+    }
+  }, [fixtures, selectedKey]);
 
   useEffect(() => {
     const fx = fixtures.find((f) => f.label === selectedKey) || null;
@@ -153,6 +126,67 @@ export default function X402Page() {
     setStatus("idle");
     setError(null);
   }, [selectedKey, fixtures]);
+
+  // Stage grouping for the picker
+  const STAGES = [
+    { key: "GS1", label: "GS 1" },
+    { key: "GS2", label: "GS 2" },
+    { key: "GS3", label: "GS 3" },
+    { key: "R32", label: "R32" },
+    { key: "R16", label: "R16" },
+    { key: "QF", label: "QF" },
+    { key: "SF", label: "SF" },
+    { key: "FS", label: "FS" },
+  ];
+
+  function matchStageKey(fx: PublicFixture): string | null {
+    const s = (fx.stageLabel || fx.stage || fx.group || "").toLowerCase();
+    if (s.includes("md1") || (s.includes("group") && !s.includes("md2") && !s.includes("md3"))) return "GS1";
+    if (s.includes("md2")) return "GS2";
+    if (s.includes("md3")) return "GS3";
+    if (s.includes("r32") || s.includes("round of 32")) return "R32";
+    if (s.includes("r16") || s.includes("round of 16")) return "R16";
+    if (s.includes("qf") || s.includes("quarter")) return "QF";
+    if (s.includes("sf") || s.includes("semi")) return "SF";
+    if (s.includes("final") || s.includes("3rd") || s.includes("third")) return "FS";
+    return null;
+  }
+
+  // Filtered & grouped fixtures
+  const query = searchQuery.toLowerCase().trim();
+  const filteredFixtures = useMemo(
+    () =>
+      query
+        ? fixtures.filter(
+            (fx) =>
+              fx.home.toLowerCase().includes(query) ||
+              fx.away.toLowerCase().includes(query) ||
+              fx.label.toLowerCase().includes(query)
+          )
+        : fixtures,
+    [fixtures, query]
+  );
+
+  const groupedFixtures = useMemo(() => {
+    const groups: { stageKey: string; label: string; items: PublicFixture[] }[] = [];
+    if (query) {
+      // No grouping when searching
+      groups.push({ stageKey: "_all", label: "Results", items: filteredFixtures });
+    } else {
+      for (const s of STAGES) {
+        const items = fixtures.filter((f) => matchStageKey(f) === s.key);
+        if (items.length > 0) {
+          groups.push({ stageKey: s.key, label: s.label, items });
+        }
+      }
+      // Uncategorised
+      const other = fixtures.filter((f) => !STAGES.some((s) => matchStageKey(f) === s.key));
+      if (other.length > 0) {
+        groups.push({ stageKey: "_other", label: "Other", items: other });
+      }
+    }
+    return groups;
+  }, [fixtures, query, filteredFixtures]);
 
   const doFetchPremium = useCallback(async () => {
     if (!selected) return;
@@ -172,7 +206,7 @@ export default function X402Page() {
         return;
       }
       const result = data.result || data;
-      if (result._error === "x402") {
+      if (result._error) {
         setError(result.message || "x402 payment failed");
         setStatus("error");
         return;
@@ -194,49 +228,169 @@ export default function X402Page() {
         </p>
       </div>
 
-      {/* Fixture selector */}
-      <Card>
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="font-display text-lg font-semibold">Select match</h2>
-          <span className="text-xs text-ink-muted">{fixtures.length} fixtures</span>
-        </div>
-        {fixtures.length > 0 ? (
-          <div className="flex flex-wrap gap-2">
-            {fixtures.map((fx) => {
-              const isSelected = selected?.label === fx.label;
-              return (
-                <button
-                  key={fx.label}
-                  onClick={() => setSelectedKey(fx.label)}
-                  className={`rounded-lg border px-3 py-2 text-left text-sm transition ${
-                    isSelected
-                      ? "border-cyan-accent/50 bg-cyan-accent/10 ring-1 ring-cyan-accent/30"
-                      : "border-ink-border bg-ink/60 hover:border-cyan-accent/20 hover:bg-ink"
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <span>{flagFor(fx.home)}</span>
-                    <span className="font-medium text-white/90">{fx.home}</span>
+      {/* Fixture selector — collapsible */}
+      <Card className={`transition-all duration-300 ${panelOpen ? "" : ""}`}>
+        {/* Header bar — always visible */}
+        <button
+          onClick={() => setPanelOpen(!panelOpen)}
+          className="flex w-full items-center justify-between"
+        >
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-cyan-accent/10 text-sm">
+              {selected ? (
+                <span className="text-lg">{flagFor(selected.home)}</span>
+              ) : (
+                <Search className="h-4 w-4 text-cyan-accent" />
+              )}
+            </div>
+            <div className="text-left">
+              <div className="font-display font-semibold">
+                {selected ? (
+                  <span className="flex items-center gap-2">
+                    <span>{flagFor(selected.home)} {selected.home}</span>
                     <span className="text-[10px] text-cyan-accent font-bold">vs</span>
-                    <span className="font-medium text-white/90">{fx.away}</span>
-                    <span className={fx.status === "LIVE" || fx.status === "HT" ? "ml-2 rounded-full bg-live/15 px-2 py-0.5 text-[10px] text-live font-medium" : "ml-2 rounded-full bg-ink-border px-2 py-0.5 text-[10px] text-ink-muted"}>
-                      {statusLabel(fx.status)}
-                    </span>
-                  </div>
-                  {fx.kickoffUtcLabel && (
-                    <div className="mt-0.5 text-[10px] text-ink-muted">
-                      {fx.kickoffUtcLabel}
-                    </div>
-                  )}
-                </button>
-              );
-            })}
+                    <span>{flagFor(selected.away)} {selected.away}</span>
+                  </span>
+                ) : (
+                  "Select a match"
+                )}
+              </div>
+              {selected && (
+                <div className="flex items-center gap-2 text-[11px] text-ink-muted">
+                  <span>{selected.stageLabel || selected.stage || selected.group || ""}</span>
+                  <span>·</span>
+                  <span>{selected.kickoffUtcLabel || ""}</span>
+                  <span
+                    className={`px-1.5 py-0.5 rounded-full text-[10px] font-medium ${
+                      selected.status === "LIVE" || selected.status === "HT"
+                        ? "bg-live/15 text-live"
+                        : "bg-ink-border text-ink-muted"
+                    }`}
+                  >
+                    {statusLabel(selected.status)}
+                  </span>
+                </div>
+              )}
+              {!selected && fixtures.length > 0 && (
+                <div className="text-[11px] text-ink-muted">
+                  {fixtures.length} fixtures available
+                </div>
+              )}
+            </div>
           </div>
-        ) : (
-          <p className="py-4 text-center text-sm text-ink-muted">
-            No fixtures available. Ensure the feeder is running.
-          </p>
-        )}
+          <motion.div
+            animate={{ rotate: panelOpen ? 180 : 0 }}
+            transition={{ duration: 0.2 }}
+            className="flex h-8 w-8 items-center justify-center rounded-lg bg-ink-border/50"
+          >
+            <ChevronDown className="h-4 w-4 text-ink-muted" />
+          </motion.div>
+        </button>
+
+        {/* Expandable panel */}
+        <AnimatePresence initial={false}>
+          {panelOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.25, ease: "easeInOut" }}
+              className="overflow-hidden"
+            >
+              <div className="mt-4 border-t border-ink-border pt-4">
+                {/* Search */}
+                <div className="relative mb-3">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-muted" />
+                  <input
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search by team name…"
+                    className="w-full rounded-lg border border-ink-border bg-ink py-2 pl-10 pr-8 text-sm outline-none transition focus:border-cyan-accent/50 focus:ring-1 focus:ring-cyan-accent/20"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery("")}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-ink-muted hover:text-white"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Grouped fixture list */}
+                {groupedFixtures.length > 0 ? (
+                  <div className="max-h-[320px] space-y-3 overflow-y-auto pr-1">
+                    {groupedFixtures.map((group) => (
+                      <div key={group.stageKey}>
+                        <div className="mb-1.5 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-ink-muted">
+                          <span>{group.label}</span>
+                          <span className="h-px flex-1 bg-ink-border/50" />
+                          <span className="text-[10px] font-normal">{group.items.length}</span>
+                        </div>
+                        <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
+                          {group.items.map((fx) => {
+                            const isSelected = selected?.label === fx.label;
+                            return (
+                              <button
+                                key={fx.label}
+                                onClick={() => {
+                                  setSelectedKey(fx.label);
+                                  setPanelOpen(false);
+                                  setSearchQuery("");
+                                }}
+                                className={`group relative flex items-center gap-2.5 rounded-lg border px-3 py-2.5 text-left text-sm transition-all duration-150 ${
+                                  isSelected
+                                    ? "border-cyan-accent/50 bg-cyan-accent/10 ring-1 ring-cyan-accent/30"
+                                    : "border-ink-border/70 bg-ink/40 hover:border-cyan-accent/20 hover:bg-ink-card"
+                                }`}
+                              >
+                                {/* Checkmark for selected */}
+                                {isSelected && (
+                                  <div className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-cyan-accent">
+                                    <Check className="h-3 w-3 text-white" />
+                                  </div>
+                                )}
+                                <span className="shrink-0 text-lg">{flagFor(fx.home)}</span>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="truncate font-medium text-white/90">{fx.home}</span>
+                                    <span className="shrink-0 text-[9px] font-bold text-cyan-accent">vs</span>
+                                    <span className="truncate font-medium text-white/90">{fx.away}</span>
+                                  </div>
+                                  <div className="mt-0.5 flex items-center gap-2 text-[10px] text-ink-muted">
+                                    <span>{fx.kickoffUtcLabel || ""}</span>
+                                    <span
+                                      className={`shrink-0 px-1.5 py-0.5 rounded-full text-[9px] font-medium ${
+                                        fx.status === "LIVE" || fx.status === "HT"
+                                          ? "bg-live/15 text-live"
+                                          : "bg-ink-border/50 text-ink-muted"
+                                      }`}
+                                    >
+                                      {statusLabel(fx.status)}
+                                    </span>
+                                  </div>
+                                </div>
+                                <span className="shrink-0 text-lg opacity-60 group-hover:opacity-100 transition-opacity">
+                                  {flagFor(fx.away)}
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="py-6 text-center text-sm text-ink-muted">
+                    {searchQuery
+                      ? `No fixtures match "${searchQuery}"`
+                      : "No fixtures available. Ensure the feeder is running."}
+                  </p>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </Card>
 
       {/* Selected match detail + action */}
@@ -361,6 +515,55 @@ export default function X402Page() {
               </Card>
             )}
 
+            {/* Win probabilities - the headline probabilistic output */}
+            {stats.probabilities && (
+              <Card className="border-cyan-accent/20">
+                <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-ink-muted">
+                  Win Probabilities
+                </h3>
+                <div className="mb-3 flex h-3 overflow-hidden rounded-full">
+                  <div className="bg-cyan-accent" style={{ width: `${Math.round(stats.probabilities.home * 100)}%` }} />
+                  <div className="bg-ink-border" style={{ width: `${Math.round(stats.probabilities.draw * 100)}%` }} />
+                  <div className="bg-cyan-accent/50" style={{ width: `${Math.round(stats.probabilities.away * 100)}%` }} />
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div>
+                    <div className="text-xs text-ink-muted">{flagFor(stats.home)} {stats.home}</div>
+                    <div className="font-display text-lg font-bold text-cyan-accent">{Math.round(stats.probabilities.home * 100)}%</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-ink-muted">Draw</div>
+                    <div className="font-display text-lg font-bold text-ink-muted">{Math.round(stats.probabilities.draw * 100)}%</div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-ink-muted">{stats.away} {flagFor(stats.away)}</div>
+                    <div className="font-display text-lg font-bold text-cyan-accent/70">{Math.round(stats.probabilities.away * 100)}%</div>
+                  </div>
+                </div>
+              </Card>
+            )}
+
+            {/* Most likely scorelines */}
+            {stats.scorelines && stats.scorelines.length > 0 && (
+              <Card>
+                <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-ink-muted">
+                  Most Likely Scorelines
+                </h3>
+                <div className="space-y-2">
+                  {stats.scorelines.map((s) => (
+                    <div key={s.score} className="flex items-center justify-between">
+                      <span className="font-mono text-sm text-white/90">{s.score}</span>
+                      <div className="flex items-center gap-2">
+                        <div className="h-1.5 w-24 overflow-hidden rounded-full bg-ink-border">
+                          <div className="h-full rounded-full bg-cyan-accent" style={{ width: `${Math.round(s.probability * 100)}%` }} />
+                        </div>
+                        <span className="w-10 text-right text-xs text-ink-muted">{Math.round(s.probability * 100)}%</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            )}
             {/* Stats grid */}
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {stats.xg && (
@@ -546,6 +749,25 @@ export default function X402Page() {
               </Card>
             )}
 
+            {/* Model & data coverage */}
+            {stats.model && (
+              <Card>
+                <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-ink-muted">
+                  Model & Data Coverage
+                </h3>
+                <div className="space-y-2">
+                  <StatRow
+                    label="Model"
+                    value={<span className="text-xs text-cyan-accent">{stats.model.type}</span>}
+                  />
+                  <StatRow
+                    label="Inputs"
+                    value={<span className="text-xs text-white/80">{stats.model.inputs.join(" · ")}</span>}
+                  />
+                  <p className="text-xs leading-relaxed text-ink-muted">{stats.model.dataCoverage}</p>
+                </div>
+              </Card>
+            )}
             {/* x402 payment info */}
             <Card className="border-cyan-accent/20">
               <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-ink-muted">

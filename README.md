@@ -129,7 +129,7 @@ Open http://localhost:3000 → connect wallet → **Dashboard** for live match f
 | `ORACLE_ADDRESS` | Deployed oracle address (filled after deploy) |
 | `TREASURY_ADDRESS` | Deployed OracleTreasury address (filled after deploy) |
 | `DROPS_ADDRESS` | Deployed FanDrops address (filled after deploy) |
-| `USDC_TESTNET_ADDRESS` | `0x670A694747c84f3B5EA1F7979eF10427fe5b1194` (Circle testnet USDC) |
+| `USDC_TESTNET_ADDRESS` | `0x0C382e685bbeeFE5d3d9C29e29E341fEE8E84C5d` (Circle testnet USDC) |
 | `X402_SETTLER_ADDRESS` | Address of the x402 endpoint's signer (granted X402_SETTLER_ROLE) |
 | `CCTP_TOKEN_MESSENGER` | `0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA` |
 | `FEEDER_MODE` | `simulator` (default) or `live` |
@@ -159,7 +159,7 @@ const latest = await publicClient.readContract({
 ## Deploy your own
 
 1. Fund deployer / feeder / agent with testnet INJ.
-2. `export USDC_TESTNET_ADDRESS=0x670A... && export USE_MOCK_USDC=false && forge script script/Deploy.s.sol --rpc-url $INJ_EVM_RPC --broadcast --slow`
+2. `export USDC_TESTNET_ADDRESS=0x0C382e... && export USE_MOCK_USDC=false && forge script script/Deploy.s.sol --rpc-url $INJ_EVM_RPC --broadcast --slow`
 3. Copy printed `Oracle` / `Treasury` / `Drops` / `USDC` into `.env` and `frontend/.env.local`.
 4. Restart all 4 services to pick up the new addresses.
 5. Get testnet USDC from [Circle's faucet](https://faucet.circle.com/) for the deployer/feeder/agent wallets.
@@ -180,6 +180,22 @@ const latest = await publicClient.readContract({
 - Multi-source event verification
 - Mainnet deployment
 - Fan drop templates (time-based, score-based, combo triggers)
+
+### Multi-sport expansion
+
+> **Hackathon scope:** this build ships **football / FIFA World Cup 2026** only. The feeder hardcodes `category = "football"` and the sports providers target WC fixtures. The on-chain contracts, however, are **category-agnostic** — `CupEventOracle.addEvent` takes an opaque `category` string and a JSON `details` blob, so the same primitive extends to any discrete real-world event with **no contract changes**. Multi-sport support is a post-hackathon roadmap item, not part of the current submission.
+
+| Phase | Sport / domain | `category` | New `eventType`s | Work required |
+|-------|----------------|-----------|------------------|---------------|
+| 1 | Club football (EPL, UCL, La Liga) | `football` | goal, card, sub, var, final | New API-Football league IDs + season config in `feeder/providers` |
+| 2 | Esports (CS2, Valorant, LoL) | `esports` | round_win, map_end, series_end, bomb_plant | New provider (e.g. PandaScore / Abios) + `category` param in feeder |
+| 3 | Tennis (ATP/WTA) | `tennis` | set, break, match_end, ace | New provider + per-sport analytics shape |
+| 4 | Elections / governance | `election` | precinct_call, result_called, certified | Off-chain verified feeds (AP/Edison) + multi-source attestation |
+| 5 | Olympics | `olympics` | medal_awarded, heat_finish, record_set | Multi-discipline provider + medal-table analytics |
+
+**Already multi-sport-ready (no changes needed):** `CupEventOracle`, `OracleTreasury` (pro-rata feeder payouts), `FanDrops` (event-triggered claims + CCTP), the MCP agent tools, and the x402 paywall.
+
+**Needs per-sport work:** feeder providers, the `category` argument in `feeder/src/index.ts` & `simulator.ts`, the analytics shape in `x402-endpoint/src/analytics.ts`, and the frontend team/flag maps (`WorldCupBracket.tsx`, `x402/page.tsx`).
 
 ## Demo talking points
 

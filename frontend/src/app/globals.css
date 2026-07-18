@@ -3,6 +3,17 @@
 @tailwind utilities;
 
 :root {
+  --bg: #0a0d12;
+  --bg-2: #0e1218;
+  --card: #12161d;
+  --card-border: #212734;
+  --line: #1c212b;
+  --ink: #eef1f6;
+  --ink-dim: #99a2b3;
+  --ink-faint: #5c6577;
+  --pitch: #33d17a;
+  --violet: #7c6cff;
+  --amber: #ffb545;
   --background: #0b0d12;
   --foreground: #e5e7eb;
 }

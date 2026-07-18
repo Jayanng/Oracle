@@ -7,7 +7,9 @@ import pRetry from "p-retry";
 import pino from "pino";
 import { getClients, ORACLE_ABI } from "./chain.js";
 import { parseAbi } from "viem";
-import { getSportsProvider, type Fixture } from "./providers/index.js";
+import { getSportsProvider, type Fixture, type MatchEvent } from "./providers/index.js";
+import { computePremiumAnalytics } from "./analytics.js";
+import { getTeamStrength, type TeamStrength } from "./providers/apiFootballHistory.js";
 import { sortFixturesTournamentDesc } from "./providers/sort.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -279,191 +281,86 @@ app.get("/premium-stats/:id", async (req, res) => {
     const allFixtures = fixturesCache.length ? fixturesCache : await provider.listFixtures();
     const sortedFixtures = sortFixturesTournamentDesc(allFixtures);
 
-    const home = fx.home;
-    const away = fx.away;
-    const status = fx.status;
-    const score = (fx.scoreHome != null && fx.scoreAway != null)
-      ? { home: fx.scoreHome, away: fx.scoreAway }
-      : undefined;
-
-    const goalEvents = events.filter((e) => e.type === "goal");
-    const cardEvents = events.filter((e) => e.type === "card");
-    const goals = { home: score?.home ?? 0, away: score?.away ?? 0 };
-    const cards = { home: 0, away: 0 };
-    for (const e of cardEvents) {
-      const t = (e.details.team as string || "").toLowerCase();
-      if (t === home.toLowerCase()) cards.home++;
-      else if (t === away.toLowerCase()) cards.away++;
-      else cards.home++;
+    // Oracle-native goal timeline: prefer on-chain verified events when the
+    // oracle contract is configured. Best-effort - never breaks the endpoint.
+    let oracleEvents: MatchEvent[] = [];
+    const oracleAddr = process.env.ORACLE_ADDRESS as `0x${string}` | undefined;
+    if (oracleAddr) {
+      try {
+        const { pub } = getClients();
+        const READ_ORACLE_ABI = parseAbi([
+          "function getEvents(uint256) view returns ((uint256,uint64,uint32,string,string,string,address)[])",
+        ]);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const rows = (await pub.readContract({
+          address: oracleAddr,
+          abi: READ_ORACLE_ABI,
+          functionName: "getEvents",
+          args: [BigInt(id)],
+        } as any)) as Array<
+          [bigint, bigint, number, string, string, string, `0x${string}`]
+        >;
+        oracleEvents = rows
+          .filter((r) => r[4] === "goal")
+          .map((r) => {
+            let details: Record<string, unknown> = {};
+            try {
+              details = JSON.parse(r[5] || "{}");
+            } catch {
+              details = {};
+            }
+            return {
+              uid: `oracle:goal:${id}:${r[2]}`,
+              minute: r[2],
+              type: "goal",
+              details,
+            };
+          });
+      } catch (e) {
+        log.warn(
+          { err: e instanceof Error ? e.message : e },
+          "oracle read skipped"
+        );
+      }
     }
 
-    // Compute team form stats from last 5 finished fixtures
-    const formHome = sortedFixtures
-      .filter((f) => f.status === "FT" && (f.home === home || f.away === home))
-      .slice(0, 5);
-    const formAway = sortedFixtures
-      .filter((f) => f.status === "FT" && (f.home === away || f.away === away))
-      .slice(0, 5);
-
-    let hw = 0, hd = 0, hl = 0;
-    let hGoalsFor = 0, hGoalsAgainst = 0;
-    const hSeq: string[] = [];
-    for (const f of formHome) {
-      const ms = f.home === home ? (f.scoreHome ?? 0) : (f.scoreAway ?? 0);
-      const os = f.home === home ? (f.scoreAway ?? 0) : (f.scoreHome ?? 0);
-      hGoalsFor += ms; hGoalsAgainst += os;
-      if (ms > os) { hw++; hSeq.push("W"); }
-      else if (ms < os) { hl++; hSeq.push("L"); }
-      else { hd++; hSeq.push("D"); }
-    }
-    let aw = 0, ad = 0, al = 0;
-    let aGoalsFor = 0, aGoalsAgainst = 0;
-    const aSeq: string[] = [];
-    for (const f of formAway) {
-      const ms = f.home === away ? (f.scoreHome ?? 0) : (f.scoreAway ?? 0);
-      const os = f.home === away ? (f.scoreAway ?? 0) : (f.scoreHome ?? 0);
-      aGoalsFor += ms; aGoalsAgainst += os;
-      if (ms > os) { aw++; aSeq.push("W"); }
-      else if (ms < os) { al++; aSeq.push("L"); }
-      else { ad++; aSeq.push("D"); }
-    }
-
-    const hasGameData = status === "FT" || status === "LIVE" || status === "HT";
-    const nHome = formHome.length || 1;
-    const nAway = formAway.length || 1;
-
-    // Shots: from actual events if match has data, else from form-based expected goals
-    const expectedHomeGoals = hasGameData ? goals.home : hGoalsFor / nHome;
-    const expectedAwayGoals = hasGameData ? goals.away : aGoalsFor / nAway;
-    const expectedHomeShots = Math.round(expectedHomeGoals / 0.12);
-    const expectedAwayShots = Math.round(expectedAwayGoals / 0.12);
-
-    const shots = {
-      home: Math.max(hasGameData ? (goals.home * 8 + cards.away * 2) : expectedHomeShots, hasGameData ? 3 : 5),
-      away: Math.max(hasGameData ? (goals.away * 8 + cards.home * 2) : expectedAwayShots, hasGameData ? 3 : 5),
-    };
-    const totalShots = shots.home + shots.away;
-    const possession = totalShots > 0
-      ? { home: Math.round((shots.home / totalShots) * 100), away: Math.round((shots.away / totalShots) * 100) }
-      : { home: 50, away: 50 };
-    const xg = {
-      home: Math.round((expectedHomeGoals * 0.85 + shots.home * 0.12) * 100) / 100,
-      away: Math.round((expectedAwayGoals * 0.85 + shots.away * 0.12) * 100) / 100,
-    };
-
-    const h2hList = sortedFixtures.filter(
-      (f) => f.status === "FT" &&
-        ((f.home === home && f.away === away) || (f.home === away && f.away === home))
-    );
-    let h2h = null as string | null;
-    if (h2hList.length > 0) {
-      let hw2 = 0, aw2 = 0, d2 = 0;
-      for (const f of h2hList) {
-        if (f.scoreHome == null || f.scoreAway == null) continue;
-        if (f.home === home) {
-          if (f.scoreHome > f.scoreAway) hw2++;
-          else if (f.scoreHome < f.scoreAway) aw2++;
-          else d2++;
-        } else {
-          if (f.scoreAway > f.scoreHome) hw2++;
-          else if (f.scoreAway < f.scoreHome) aw2++;
-          else d2++;
+    // Best-effort api-football historical enrichment (free-plan safe: cached,
+    // budget-guarded, never throws). Falls back to null -> engine uses Elo prior.
+    let historyHome: TeamStrength | null = null;
+    let historyAway: TeamStrength | null = null;
+    if (process.env.SPORTS_API_KEY) {
+      try {
+        [historyHome, historyAway] = await Promise.all([
+          getTeamStrength(fx.home),
+          getTeamStrength(fx.away),
+        ]);
+        if (historyHome || historyAway) {
+          log.info(
+            { home: historyHome?.sample, away: historyAway?.sample },
+            "api-football history enriched"
+          );
         }
-      }
-      h2h = `${home} ${hw2} · Draws ${d2} · ${away} ${aw2} (last ${h2hList.length} meetings)`;
-    }
-
-    let prediction = { winner: "Draw", confidence: "low", reasoning: "Similar recent form." };
-    if (status === "FT") {
-      if (goals.home > goals.away) prediction = { winner: home, confidence: "confirmed", reasoning: `${home} ${goals.home}–${goals.away} ${away}` };
-      else if (goals.away > goals.home) prediction = { winner: away, confidence: "confirmed", reasoning: `${away} ${goals.away}–${goals.home} ${home}` };
-      else prediction = { winner: "Draw", confidence: "confirmed", reasoning: `${goals.home}–${goals.away} draw` };
-    } else if (status === "LIVE" || status === "HT") {
-      const diff = goals.home - goals.away;
-      const lastMinute = events.length > 0 ? events[events.length - 1].minute : 0;
-      const remaining = 90 - lastMinute;
-      if (diff > 1) {
-        prediction = { winner: home, confidence: "high", reasoning: `${home} is strongly favored — they lead by ${diff} goals with ${remaining} minutes remaining. ${away} would need a remarkable comeback to turn this around.` };
-      } else if (diff < -1) {
-        prediction = { winner: away, confidence: "high", reasoning: `${away} is strongly favored — they lead by ${-diff} goals with ${remaining} minutes remaining. ${home} faces an uphill battle to equalize.` };
-      } else if (diff === 1 && remaining < 15) {
-        prediction = { winner: home, confidence: "high", reasoning: `${home} leads by 1 goal with only ${remaining} minutes left. ${away} has very little time to find an equalizer — ${home} should hold on for the win.` };
-      } else if (diff === -1 && remaining < 15) {
-        prediction = { winner: away, confidence: "high", reasoning: `${away} leads by 1 goal with only ${remaining} minutes left. ${home} has very little time to find an equalizer — ${away} should hold on for the win.` };
-      } else if (diff === 1) {
-        prediction = { winner: home, confidence: "medium", reasoning: `${home} leads by 1 goal with ${remaining} minutes remaining. ${away} still has time to equalize, but ${home} has the advantage and should win if they maintain their lead.` };
-      } else if (diff === -1) {
-        prediction = { winner: away, confidence: "medium", reasoning: `${away} leads by 1 goal with ${remaining} minutes remaining. ${home} still has time to equalize, but ${away} has the advantage and should win if they maintain their lead.` };
-      } else if (diff === 0) {
-        prediction = { winner: "Draw", confidence: "medium", reasoning: `The match is level at ${goals.home}-${goals.away} with ${remaining} minutes remaining. Both teams are evenly poised — this could go either way, but a draw is a strong possibility.` };
-      }
-    } else {
-      const homeFormPts = hw * 3 + hd;
-      const awayFormPts = aw * 3 + ad;
-      const homeGd = hGoalsFor - hGoalsAgainst;
-      const awayGd = aGoalsFor - aGoalsAgainst;
-      const homeAvgGf = nHome > 0 ? hGoalsFor / nHome : 0;
-      const awayAvgGf = nAway > 0 ? aGoalsFor / nAway : 0;
-      const homeAvgGa = nHome > 0 ? hGoalsAgainst / nHome : 0;
-      const awayAvgGa = nAway > 0 ? aGoalsAgainst / nAway : 0;
-
-      const homeFormStr = `W${hw}D${hd}L${hl} (${hGoalsFor}:${hGoalsAgainst})`;
-      const awayFormStr = `W${aw}D${ad}L${al} (${aGoalsFor}:${aGoalsAgainst})`;
-
-      if (homeFormPts > awayFormPts + 2) {
-        prediction = { winner: home, confidence: "high", reasoning: `${home} should win because they have significantly stronger recent form (${homeFormStr}) compared to ${away} (${awayFormStr}). ${home} averages ${homeAvgGf.toFixed(1)} goals per game and has a goal difference of +${homeGd}, giving them a clear edge in both attack and overall consistency.` };
-      } else if (awayFormPts > homeFormPts + 2) {
-        prediction = { winner: away, confidence: "high", reasoning: `${away} should win because they have significantly stronger recent form (${awayFormStr}) compared to ${home} (${homeFormStr}). ${away} averages ${awayAvgGf.toFixed(1)} goals per game and has a goal difference of +${awayGd}, giving them a clear edge in both attack and overall consistency.` };
-      } else if (homeFormPts > awayFormPts) {
-        prediction = { winner: home, confidence: "medium", reasoning: `${home} is likely to win because they edge ${away} on form points (${homeFormPts} vs ${awayFormPts}). While both teams are close, ${home}'s recent record of ${homeFormStr} gives them a slight but meaningful advantage over ${away}'s ${awayFormStr}.` };
-      } else if (awayFormPts > homeFormPts) {
-        prediction = { winner: away, confidence: "medium", reasoning: `${away} is likely to win because they edge ${home} on form points (${awayFormPts} vs ${homeFormPts}). While both teams are close, ${away}'s recent record of ${awayFormStr} gives them a slight but meaningful advantage over ${home}'s ${homeFormStr}.` };
-      } else if (homeGd - awayGd > 2) {
-        prediction = { winner: home, confidence: "medium", reasoning: `${home} should win because, despite identical win records, ${home} has a much better goal difference (+${homeGd} vs +${awayGd}). ${home} has scored ${hGoalsFor} and conceded only ${hGoalsAgainst} (${homeAvgGa.toFixed(1)}/game), while ${away} has scored ${aGoalsFor} and conceded ${aGoalsAgainst} (${awayAvgGa.toFixed(1)}/game). ${home}'s superior defense should be the deciding factor.` };
-      } else if (awayGd - homeGd > 2) {
-        prediction = { winner: away, confidence: "medium", reasoning: `${away} should win because, despite identical win records, ${away} has a much better goal difference (+${awayGd} vs +${homeGd}). ${away} has scored ${aGoalsFor} and conceded only ${aGoalsAgainst} (${awayAvgGa.toFixed(1)}/game), while ${home} has scored ${hGoalsFor} and conceded ${hGoalsAgainst} (${homeAvgGa.toFixed(1)}/game). ${away}'s superior defense should be the deciding factor.` };
-      } else if (homeAvgGf - awayAvgGf > 0.5) {
-        prediction = { winner: home, confidence: "low", reasoning: `This match could go either way, but ${home} has a slight edge because they score significantly more goals (${homeAvgGf.toFixed(1)} vs ${awayAvgGf.toFixed(1)} per game). Both teams have similar form (${homeFormStr} vs ${awayFormStr}), so ${home}'s attacking firepower may be the difference in a tight match.` };
-      } else if (awayAvgGf - homeAvgGf > 0.5) {
-        prediction = { winner: away, confidence: "low", reasoning: `This match could go either way, but ${away} has a slight edge because they score significantly more goals (${awayAvgGf.toFixed(1)} vs ${homeAvgGf.toFixed(1)} per game). Both teams have similar form (${awayFormStr} vs ${homeFormStr}), so ${away}'s attacking firepower may be the difference in a tight match.` };
-      } else if (homeGd > awayGd) {
-        prediction = { winner: home, confidence: "low", reasoning: `${home} has a marginal edge due to a slightly better goal difference (+${homeGd} vs +${awayGd}). Both teams are very evenly matched on form (${homeFormStr} vs ${awayFormStr}), so this is likely to be a close game, with ${home} just edging it.` };
-      } else if (awayGd > homeGd) {
-        prediction = { winner: away, confidence: "low", reasoning: `${away} has a marginal edge due to a slightly better goal difference (+${awayGd} vs +${homeGd}). Both teams are very evenly matched on form (${awayFormStr} vs ${homeFormStr}), so this is likely to be a close game, with ${away} just edging it.` };
-      } else {
-        prediction = { winner: "Draw", confidence: "low", reasoning: `This match may likely end in a draw because both teams are near-identical across all metrics — same form (${homeFormStr} vs ${awayFormStr}), same goal difference (+${homeGd}), and similar scoring rates (${homeAvgGf.toFixed(1)} vs ${awayAvgGf.toFixed(1)} goals/game). There is no clear advantage for either side.` };
+      } catch (e) {
+        log.warn(
+          { err: e instanceof Error ? e.message : e },
+          "api-football history skipped"
+        );
       }
     }
 
-    let narrative = prediction.reasoning;
-    if (h2h) narrative += ` | H2H: ${h2h}`;
-    narrative += ` | ${home} ${hSeq.join("")} (${hGoalsFor}:${hGoalsAgainst}) vs ${away} ${aSeq.join("")} (${aGoalsFor}:${aGoalsAgainst})`;
-
-    res.json({
-      matchId: id,
-      home,
-      away,
-      score,
-      status,
-      goals: { home: goals.home, away: goals.away, timeline: goalEvents.map((e) => ({ minute: e.minute, scorer: (e.details.player || e.details.team || "Unknown") as string })) },
-      cards,
-      shots,
-      possession,
-      xg,
-      form: {
-        home: `${hSeq.join("")} (W${hw}D${hd}L${hl}, ${hGoalsFor}:${hGoalsAgainst})`,
-        away: `${aSeq.join("")} (W${aw}D${ad}L${al}, ${aGoalsFor}:${aGoalsAgainst})`,
-      },
-      h2h,
-      prediction,
-      narrative,
-      _source: `feeder-${fx.source || "unknown"}`,
+    const stats = computePremiumAnalytics({
+      fx,
+      events,
+      oracleEvents,
+      allFixtures: sortedFixtures,
+      historyHome,
+      historyAway,
     });
+    res.json(stats);
   } catch (e) {
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }
 });
-
 const port = Number(process.env.FEEDER_PORT || "4030");
 app.listen(port, () => log.info({ port }, "feeder API on"));
 

@@ -61,6 +61,16 @@ function mapStatus(g: WcGame): FixtureStatus {
   return "NS";
 }
 
+/** Extract the live match minute (0..90+) when time_elapsed is numeric. */
+function parseLiveMinute(timeElapsed?: string): number | undefined {
+  const te = (timeElapsed || "").trim();
+  if (/^\d+$/.test(te)) {
+    const n = Number(te);
+    if (n >= 0 && n <= 130) return n;
+  }
+  return undefined;
+}
+
 /**
  * Convert venue-local "MM/DD/YYYY HH:mm" → true UTC using stadium offset.
  * Example: Final 07/19/2026 15:00 at MetLife (UTC−4) → 19:00 UTC.
@@ -284,6 +294,7 @@ function mapGames(games: WcGame[]): Fixture[] {
       kickoffUtc,
       kickoffUtcLabel,
       status: mapStatus(g),
+      liveMinute: parseLiveMinute(g.time_elapsed),
       scoreHome: g.home_score != null ? Number(g.home_score) : null,
       scoreAway: g.away_score != null ? Number(g.away_score) : null,
       group: g.group,

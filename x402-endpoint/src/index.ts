@@ -48,7 +48,12 @@ const CIRCLE_USDC =
 
 const RECEIVER = (process.env.X402_RECEIVER_ADDRESS ||
   process.env.AGENT_ADDRESS ||
-  "0x3Ff34877B1CB3eBf91Ff46C6EFbD11565D466004") as Address;
+  "") as Address;
+if (!RECEIVER) {
+  console.warn(
+    "[x402] X402_RECEIVER_ADDRESS (or AGENT_ADDRESS) is not set — payments cannot be routed. Set X402_RECEIVER_ADDRESS in .env."
+  );
+}
 
 // Treasury contract for on-chain settlement
 const TREASURY = process.env.TREASURY_ADDRESS as Address | undefined;
@@ -165,19 +170,20 @@ async function premiumPayload(matchId: number, protocol: string) {
     const stats = await computeAnalytics(matchId);
     return { ...stats, _paid: true, _protocol: protocol, _network: NETWORK, _chainId: CHAIN_ID };
   } catch (e) {
-    console.warn("[x402] analytics fetch failed, using fallback:", e instanceof Error ? e.message : e);
+    console.warn("[x402] analytics fetch failed:", e instanceof Error ? e.message : e);
+    // Do NOT fabricate stats after a payment has been taken. Return an honest
+    // error so the UI/agent can surface "analytics temporarily unavailable"
+    // without presenting invented numbers as real data.
     return {
       matchId,
-      xg: { home: 1.34, away: 1.87 },
-      possession: { home: 44, away: 56 },
-      shots: { home: 9, away: 14 },
-      keyPasses: { home: 6, away: 11 },
-      narrative: "Away side leads in xG, possession, and shots.",
       _paid: true,
       _protocol: protocol,
       _network: NETWORK,
       _chainId: CHAIN_ID,
-      _source: "hardcoded-fallback",
+      _error: "analytics_unavailable",
+      _source: "unavailable",
+      message:
+        "Payment was processed, but live analytics are temporarily unavailable (feeder unreachable). Please try again shortly.",
     };
   }
 }

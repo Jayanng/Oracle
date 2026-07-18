@@ -322,10 +322,10 @@ export default function DashboardPage() {
                     View Fan Drops
                   </Link>
                   <Link
-                    href="/explorer"
+                    href="/x402"
                     className="btn-ghost w-full text-center"
                   >
-                    Explore all events
+                    Premium Analytics
                   </Link>
                 </div>
 

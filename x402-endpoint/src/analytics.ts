@@ -22,6 +22,11 @@ export type PremiumStats = {
   h2h: string | null;
   prediction: { winner: string; confidence: string; reasoning: string };
   narrative: string;
+  /** New probabilistic layer (Poisson/Dixon-Coles). */
+  probabilities?: { home: number; draw: number; away: number };
+  scorelines?: { score: string; probability: number }[];
+  expectedGoals?: { home: number; away: number };
+  model?: { type: string; inputs: string[]; dataCoverage: string };
   _source: string;
 };
 

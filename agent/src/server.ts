@@ -44,7 +44,7 @@ server.tool(
 
 server.tool(
   "get_premium_stats",
-  "Purchase premium match analytics via x402 (autonomous payment on Injective)",
+  "Purchase premium match analytics via x402: returns calibrated win probabilities (home/draw/away), most-likely scorelines, expected goals, form, H2H and a model/provenance block. Use for match previews and outcome predictions.",
   { matchId: z.number().describe("Match / fixture ID") },
   async ({ matchId }) => {
     const result = await tools.getPremiumStats({ matchId });

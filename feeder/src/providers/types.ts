@@ -15,6 +15,8 @@ export type Fixture = {
   scoreHome?: number | null;
   scoreAway?: number | null;
   group?: string;
+  /** Live match minute (0..90+), when the provider exposes it. */
+  liveMinute?: number;
   stage?: string;
   venue?: string;
   source: string;

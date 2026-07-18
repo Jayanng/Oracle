@@ -31,10 +31,68 @@ export async function loadFixtures(force = false): Promise<PublicFixture[]> {
   return cache;
 }
 
+/**
+ * Team name aliases — the worldcup26 API returns "Ivory Coast", "Turkey",
+ * "Democratic Republic of the Congo", while UI/bracket labels use
+ * "Côte d'Ivoire", "Türkiye", "DR Congo". Map every variant to one canonical
+ * form so resolveMatchId matches regardless of which the user types or the
+ * provider returns.
+ */
+const TEAM_ALIASES: Record<string, string> = {
+  "ivory coast": "ivory coast",
+  "cote d'ivoire": "ivory coast",
+  "côte d'ivoire": "ivory coast",
+  "dr congo": "dr congo",
+  "democratic republic of the congo": "dr congo",
+  "democratic republic of congo": "dr congo",
+  "drc": "dr congo",
+  "turkey": "turkey",
+  "türkiye": "turkey",
+  "united states": "united states",
+  "usa": "united states",
+  "u.s.": "united states",
+  "south korea": "south korea",
+  "korea republic": "south korea",
+};
+
+/** Normalise a single team name to its canonical lower-case form. */
+function canonicalTeam(name: string): string {
+  const n = name.toLowerCase().trim();
+  if (TEAM_ALIASES[n]) return TEAM_ALIASES[n];
+  const stripped = n
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s'-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return TEAM_ALIASES[stripped] || stripped;
+}
+
+/** Normalise a whole query: strip diacritics, then replace alias variants with their canonical form. */
+function normalizeQuery(s: string): string {
+  let n = s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  for (const [variant, canon] of Object.entries(TEAM_ALIASES)) {
+    const v = variant.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    if (v !== canon && n.includes(v)) n = n.split(v).join(canon);
+  }
+  return n;
+}
+
+/** Lower-case, strip diacritics, keep apostrophes/hyphens (so "Côte d'Ivoire" → "cote d'ivoire"). */
+function cleanTeam(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z\s'-]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** Resolve user text → internal match id (never shown to users as "match id") */
 export async function resolveMatchId(text: string, fallback?: number): Promise<number | null> {
   const fixtures = await loadFixtures();
-  const lower = text.toLowerCase();
+  const canon = normalizeQuery(text);
 
   // explicit number only if user pasted one (agent internal)
   const num = text.match(/\b(\d{1,6})\b/);
@@ -47,11 +105,16 @@ export async function resolveMatchId(text: string, fallback?: number): Promise<n
   const vsMatch = extractVsTeams(text);
   if (vsMatch) {
     const [a, b] = vsMatch;
-    const hit = fixtures.find(
-      (f) =>
-        (f.home.toLowerCase().includes(a) && f.away.toLowerCase().includes(b)) ||
-        (f.home.toLowerCase().includes(b) && f.away.toLowerCase().includes(a))
-    );
+    const ca = canonicalTeam(a);
+    const cb = canonicalTeam(b);
+    const hit = fixtures.find((f) => {
+      const fh = canonicalTeam(f.home);
+      const fa = canonicalTeam(f.away);
+      return (
+        (fh.includes(ca) && fa.includes(cb)) ||
+        (fh.includes(cb) && fa.includes(ca))
+      );
+    });
     if (hit) return hit.id;
     // Both team names given but no match found — don't silently fallback
     return null;
@@ -59,13 +122,13 @@ export async function resolveMatchId(text: string, fallback?: number): Promise<n
 
   // both team names in same fixture
   for (const f of fixtures) {
-    if (lower.includes(f.home.toLowerCase()) && lower.includes(f.away.toLowerCase())) {
+    if (canon.includes(canonicalTeam(f.home)) && canon.includes(canonicalTeam(f.away))) {
       return f.id;
     }
   }
   // single team name — narrow to matches mentioning that team
   for (const f of fixtures) {
-    if (lower.includes(f.home.toLowerCase()) || lower.includes(f.away.toLowerCase())) {
+    if (canon.includes(canonicalTeam(f.home)) || canon.includes(canonicalTeam(f.away))) {
       return f.id;
     }
   }
@@ -116,5 +179,5 @@ function extractVsTeams(text: string): [string, string] | null {
     .join(" ");
 
   if (!teamA || !teamB) return null;
-  return [teamA.toLowerCase().replace(/[^a-z\s-]/g, "").trim(), teamB.toLowerCase().replace(/[^a-z\s-]/g, "").trim()];
+  return [cleanTeam(teamA), cleanTeam(teamB)];
 }
