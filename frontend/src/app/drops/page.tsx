@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   useAccount,
@@ -77,6 +77,7 @@ export default function DropsPage() {
 
   // --- Tab 1: Active Drops ---
   const [activeDropIds, setActiveDropIds] = useState<number[]>([]);
+  const [dropMatchIds, setDropMatchIds] = useState<Record<number, number>>({});
   const [eligibilityMap, setEligibilityMap] = useState<Record<number, boolean>>({});
   const [claimedMap, setClaimedMap] = useState<Record<number, boolean>>({});
   const [claimModal, setClaimModal] = useState<{ dropId: number; perWinnerAmount: bigint } | null>(null);
@@ -243,6 +244,7 @@ export default function DropsPage() {
         })) as bigint;
         const total = Number(nextId);
         const active: number[] = [];
+        const matchIds: Record<number, number> = {};
         for (let i = 0; i < total; i++) {
           const dropRaw = (await pub.readContract({
             address: DROPS_ADDRESS,
@@ -250,9 +252,13 @@ export default function DropsPage() {
             functionName: "drops",
             args: [BigInt(i)],
           })) as unknown as [bigint, string, number, number, bigint, number, number, bigint, string, boolean];
-          if (dropRaw[9]) active.push(i); // active flag
+          if (dropRaw[9]) {
+            active.push(i); // active flag
+            matchIds[i] = Number(dropRaw[0]);
+          }
         }
         setActiveDropIds(active);
+        setDropMatchIds(matchIds);
       } catch (e) {
         console.warn("Could not load drops:", e);
       }
@@ -295,6 +301,22 @@ export default function DropsPage() {
     const t = setInterval(check, 15_000);
     return () => clearInterval(t);
   }, [hasDrops, address, pub, activeDropIds]);
+
+  // Only show drops for upcoming/LIVE fixtures, deduped by matchId (keep newest dropId)
+  const visibleDropIds = useMemo(() => {
+    const showableStatuses = new Set(["NS", "LIVE", "HT", "1H", "2H", "ET", "P"]);
+    const byMatch = new Map<number, number>();
+    for (const dropId of activeDropIds) {
+      const matchId = dropMatchIds[dropId];
+      if (matchId === undefined) continue;
+      const fixture = fixtures.find((f) => f.id === matchId);
+      // If fixtures haven't loaded yet, keep the drop; otherwise require an upcoming/LIVE status
+      if (fixture && !showableStatuses.has(fixture.status)) continue;
+      const existing = byMatch.get(matchId);
+      if (existing === undefined || dropId > existing) byMatch.set(matchId, dropId);
+    }
+    return Array.from(byMatch.values()).sort((a, b) => a - b);
+  }, [activeDropIds, dropMatchIds, fixtures]);
 
   // Actions
   async function handleClaim(dropId: number) {
@@ -599,13 +621,13 @@ export default function DropsPage() {
       {/* Tab 1: Active Drops */}
       {tab === "drops" && (
         <div>
-          {activeDropIds.length === 0 ? (
+          {visibleDropIds.length === 0 ? (
             <div className="card py-12 text-center">
               <p className="text-ink-muted">No active drops yet. Sponsors can create drops in the &quot;Sponsor a Drop&quot; tab.</p>
             </div>
           ) : (
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {activeDropIds.map((dropId) => (
+              {visibleDropIds.map((dropId) => (
                 <DropCard
                   key={dropId}
                   dropId={dropId}

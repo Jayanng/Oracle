@@ -123,8 +123,10 @@ async function resolveDropId(matchId: number): Promise<number | null> {
     functionName: "nextDropId",
   })) as bigint;
 
+  // Scan newest-first so we pick the most recent active drop for the match,
+  // matching the frontend which dedupes by matchId keeping the highest dropId.
   let found: number | null = null;
-  for (let i = 0; i < Number(nextId); i++) {
+  for (let i = Number(nextId) - 1; i >= 0; i--) {
     try {
       const d = (await pub.readContract({
         address: drops,
