@@ -542,7 +542,7 @@ export default function DropsPage() {
   }
 
   const TABS: { key: Tab; label: string }[] = [
-    { key: "drops", label: "Active Drops" },
+    { key: "drops", label: "Reward Drops" },
     { key: "sponsor", label: "Sponsor a Drop" },
     { key: "feeder", label: "Feeder Earnings" },
   ];
@@ -550,10 +550,10 @@ export default function DropsPage() {
   return (
     <div className="mx-auto max-w-7xl space-y-6 px-4 py-8">
       <div>
-        <h1 className="font-display text-3xl font-bold">Fan Drops & Feeder Marketplace</h1>
+        <h1 className="font-display text-3xl font-bold">Rewards & Treasury</h1>
         <p className="mt-1 text-ink-muted">
-          Sponsors fund USDC drops triggered by oracle events. Fans claim free rewards.
-          Feeders earn treasury revenue from x402 queries.
+          Buy premium stats via the Agent chat → get whitelisted for the match's drop →
+          claim USDC on Injective or any chain via CCTP. Funded by oracle x402 revenue.
         </p>
       </div>
 

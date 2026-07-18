@@ -23,7 +23,7 @@ const CHAT_URL = "/api/chat";
 
 function AgentInner() {
   const router = useRouter();
-  const { isConnected } = useAccount();
+  const { isConnected, address } = useAccount();
   useEffect(() => {
     if (!isConnected) router.replace("/");
   }, [isConnected, router]);
@@ -83,6 +83,7 @@ function AgentInner() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: next.map((m) => ({ role: m.role, content: m.content })),
+          wallet: address,
         }),
       });
       const data = await r.json().catch(() => ({} as Record<string, unknown>));

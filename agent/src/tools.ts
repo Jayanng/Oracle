@@ -104,6 +104,46 @@ function dropsAddr() {
   return a as `0x${string}`;
 }
 
+/** In-memory cache: matchId → dropId */
+const dropIdCache = new Map<number, number>();
+
+/**
+ * Resolve the most recent active drop ID for a given matchId.
+ * Iterates on-chain drops and caches the result.
+ */
+async function resolveDropId(matchId: number): Promise<number | null> {
+  const cached = dropIdCache.get(matchId);
+  if (cached !== undefined) return cached;
+
+  const { pub } = clients();
+  const drops = dropsAddr();
+  const nextId = (await pub.readContract({
+    address: drops,
+    abi: FAN_DROPS_ABI,
+    functionName: "nextDropId",
+  })) as bigint;
+
+  let found: number | null = null;
+  for (let i = 0; i < Number(nextId); i++) {
+    try {
+      const d = (await pub.readContract({
+        address: drops,
+        abi: FAN_DROPS_ABI,
+        functionName: "drops",
+        args: [BigInt(i)],
+      })) as readonly [bigint, string, number, number, bigint, number, number, bigint, string, boolean];
+
+      if (d[0] === BigInt(matchId) && d[9] === true) {
+        found = i;
+        break;
+      }
+    } catch { /* skip invalid drops */ }
+  }
+
+  if (found !== null) dropIdCache.set(matchId, found);
+  return found;
+}
+
 function treasuryAddr() {
   const a = process.env.TREASURY_ADDRESS;
   if (!a) throw new Error("TREASURY_ADDRESS not set");
@@ -123,6 +163,7 @@ function mapEvent(e: readonly [bigint, bigint, number, string, string, string, `
 }
 
 export const tools = {
+  resolveDropId,
   // ---- Oracle reads (unchanged) ----
 
   async getLatestEvent({ matchId }: { matchId: number }) {

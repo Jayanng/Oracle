@@ -280,7 +280,8 @@ async function resolveArgs(
 async function runTool(
   name: string,
   rawArgs: Record<string, unknown>,
-  userText: string
+  userText: string,
+  wallet?: string
 ) {
   const t0 = Date.now();
 
@@ -328,6 +329,24 @@ async function runTool(
     const result = Array.isArray(raw)
       ? { events: raw, _fixture: labelFor(matchId) }
       : { ...raw, _fixture: labelFor(matchId) };
+
+    // Auto-whitelist user on the match's drop after successful x402 premium purchase
+    if (fn === "getPremiumStats" && (raw as any)?._x402?.paid && wallet) {
+      try {
+        const dropId = await tools.resolveDropId(matchId);
+        if (dropId != null) {
+          await (tools as any).whitelistDrop({ dropId, wallets: [wallet] });
+          result._whitelisted = true;
+          result._dropId = dropId;
+          result._autoWhitelistMsg = `You've been whitelisted for Drop #${dropId} — go to the Rewards tab to claim!`;
+        } else {
+          console.warn(`No active drop found for matchId ${matchId}`);
+        }
+      } catch (e) {
+        console.warn("Auto-whitelist failed:", e);
+      }
+    }
+
     return { result, ms: Date.now() - t0, matchId };
   }
 
@@ -516,7 +535,8 @@ function formatAnswer(tool: string, result: unknown): string {
             "\n_Note: demo-eip712 is signature-only (not a USDC transfer on explorer). Use official mode for verifiable settle._";
         }
       }
-      return lines + paid;
+      const rewardMsg = s._autoWhitelistMsg as string | undefined;
+      return lines + paid + (rewardMsg ? `\n\n🎁 ${rewardMsg}` : "");
     }
     case "create_drop": {
       const d = result as { dropId?: number; txHash?: string; totalFunded?: string };
@@ -594,6 +614,7 @@ app.post("/chat", async (req, res) => {
       role: string;
       content: string;
     }>;
+    const userWallet = (req.body?.wallet || "") as string;
     const lastUser =
       [...messages].reverse().find((m) => m.role === "user")?.content || "";
     const trace: Array<{
@@ -625,7 +646,7 @@ app.post("/chat", async (req, res) => {
     if (routed && useDet) {
       try {
         const detArgs = routed.status ? { status: routed.status } : {};
-        const { result, ms } = await runTool(routed.tool, detArgs, lastUser);
+        const { result, ms } = await runTool(routed.tool, detArgs, lastUser, userWallet);
         trace.push({ tool: routed.tool, args: detArgs, result, ms });
         return res.json({
           answer: formatAnswer(routed.tool, result),
@@ -717,7 +738,7 @@ app.post("/chat", async (req, res) => {
       for (const tc of msg.tool_calls) {
         if (tc.type !== "function") continue;
         const args = JSON.parse(tc.function.arguments || "{}");
-        const { result, ms } = await runTool(tc.function.name, args, lastUser);
+        const { result, ms } = await runTool(tc.function.name, args, lastUser, userWallet);
         trace.push({ tool: tc.function.name, args, result, ms });
         convo.push({
           role: "tool",
