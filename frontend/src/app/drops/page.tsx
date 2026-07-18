@@ -98,6 +98,27 @@ export default function DropsPage() {
     chainId: number;
   } | null>(null);
   const [mintBusy, setMintBusy] = useState(false);
+  const [requestingDrop, setRequestingDrop] = useState<number | null>(null);
+
+  async function handleRequestAccess(dropId: number) {
+    if (!address) return;
+    setRequestingDrop(dropId);
+    try {
+      const r = await fetch("/api/whitelist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ dropId, wallet: address }),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || "Whitelist failed");
+      toast.success(`Access granted for Drop #${dropId}!`);
+      setEligibilityMap((m) => ({ ...m, [dropId]: true }));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not request access");
+    } finally {
+      setRequestingDrop(null);
+    }
+  }
 
   function closeTxFlow() {
     setTxFlow((p) => ({ ...p, open: false }));
@@ -591,7 +612,9 @@ export default function DropsPage() {
                   fixtures={fixtures}
                   eligible={eligibilityMap[dropId] ?? false}
                   alreadyClaimed={claimedMap[dropId] ?? false}
+                  requesting={requestingDrop === dropId}
                   onClaim={() => setClaimModal({ dropId, perWinnerAmount: BigInt(0) })}
+                  onRequestAccess={() => handleRequestAccess(dropId)}
                 />
               ))}
             </div>
@@ -861,13 +884,17 @@ function DropCard({
   fixtures,
   eligible,
   alreadyClaimed,
+  requesting,
   onClaim,
+  onRequestAccess,
 }: {
   dropId: number;
   fixtures: PublicFixture[];
   eligible: boolean;
   alreadyClaimed: boolean;
+  requesting?: boolean;
   onClaim: () => void;
+  onRequestAccess?: () => void;
 }) {
   const { data: raw } = useReadContract({
     address: DROPS_ADDRESS || undefined,
@@ -941,7 +968,13 @@ function DropCard({
           <span className="text-emerald-400 text-xs">✅ Claimed</span>
         )}
         {!eligible && active && (
-          <span className="text-amber-400 text-xs">Not whitelisted</span>
+          <button
+            className="text-xs font-medium text-cyan-accent hover:underline disabled:opacity-50"
+            onClick={onRequestAccess}
+            disabled={requesting}
+          >
+            {requesting ? "Requesting…" : "Request Access"}
+          </button>
         )}
       </div>
     </motion.div>
