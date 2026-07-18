@@ -17,18 +17,25 @@ export function TxModal({
   steps,
   onClose,
   title = "Transaction",
+  actionLabel,
+  onAction,
+  actionBusy,
 }: {
   open: boolean;
   steps: TxStep[];
   onClose: () => void;
   title?: string;
+  actionLabel?: string;
+  onAction?: () => void;
+  actionBusy?: boolean;
 }) {
   if (!open) return null;
 
   const hasSteps = steps.length > 0;
-  const allDone = hasSteps && steps.every((s) => s.status === "confirmed");
   const anyError = hasSteps && steps.some((s) => s.status === "error");
   const waiting = !hasSteps || steps.some((s) => s.status === "pending");
+  const showAction = onAction && !waiting && !anyError && !actionBusy;
+  const allDone = hasSteps && steps.every((s) => s.status === "confirmed") && !showAction;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
@@ -94,6 +101,15 @@ export function TxModal({
           ))}
         </div>
 
+        {showAction && (
+          <button
+            className="btn-primary w-full"
+            onClick={onAction}
+            disabled={actionBusy}
+          >
+            {actionBusy ? "Processing…" : actionLabel || "Continue"}
+          </button>
+        )}
         {allDone && (
           <button className="btn-primary w-full" onClick={onClose}>
             Done

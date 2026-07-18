@@ -89,8 +89,19 @@ export default function DropsPage() {
     steps: [],
   });
 
+  /** Stored once burn + attestation complete; user clicks Mint button to finish. */
+  const [pendingMint, setPendingMint] = useState<{
+    message: `0x${string}`;
+    attestation: `0x${string}`;
+    domain: number;
+    label: string;
+    chainId: number;
+  } | null>(null);
+  const [mintBusy, setMintBusy] = useState(false);
+
   function closeTxFlow() {
     setTxFlow((p) => ({ ...p, open: false }));
+    setPendingMint(null);
   }
 
   function appendTxStep(step: TxStep) {
@@ -103,6 +114,47 @@ export default function DropsPage() {
       if (steps.length > 0) steps[steps.length - 1] = { ...steps[steps.length - 1], ...update };
       return { ...p, steps };
     });
+  }
+
+  /** Shared mint handler — called via TxModal action button after cross-chain burn. */
+  async function handleMint() {
+    const data = pendingMint;
+    if (!data) return;
+    setMintBusy(true);
+    appendTxStep({ label: `Mint USDC on ${data.label}`, status: "pending", domain: data.domain });
+    try {
+      try {
+        if (switchChainAsync) await switchChainAsync({ chainId: data.chainId });
+      } catch { /* user may cancel MetaMask switch — proceed anyway */ }
+
+      const mintHash = await writeContractAsync({
+        chainId: data.chainId,
+        address: MESSAGE_TRANSMITTER_ADDRESS,
+        abi: MESSAGE_TRANSMITTER_ABI,
+        functionName: "receiveMessage",
+        args: [data.message, data.attestation],
+      });
+      updateLastTxStep({ txHash: mintHash, domain: data.domain });
+
+      const destRpc = data.chainId === 11_155_111
+        ? "https://rpc.sepolia.org"
+        : "https://rpc.sepolia.org";
+      try {
+        const destPub = createPublicClient({ transport: http(destRpc) });
+        const mr = await destPub.waitForTransactionReceipt({ hash: mintHash, timeout: 120_000 });
+        if (mr.status !== "success") throw new Error("Mint reverted");
+      } catch (e) {
+        console.warn("Could not verify mint receipt:", e);
+      }
+      updateLastTxStep({ status: "confirmed" });
+      setPendingMint(null);
+      refetchBalance();
+    } catch (e) {
+      updateLastTxStep({ status: "error" });
+      toast.error(e instanceof Error ? e.message : "Mint failed");
+    } finally {
+      setMintBusy(false);
+    }
   }
 
   // --- Tab 2: Sponsor ---
@@ -290,42 +342,14 @@ export default function DropsPage() {
         }
         updateLastTxStep({ status: "confirmed" });
 
-        // Step 3: Switch wallet to destination chain and call receiveMessage
-        appendTxStep({
-          label: `Mint USDC on ${destLabel}`,
-          status: "pending",
+        // Step 3: Store mint data — user clicks "Mint" action button in TxModal
+        setPendingMint({
+          message: attestationData.message as `0x${string}`,
+          attestation: attestationData.attestation as `0x${string}`,
           domain: claimDest,
+          label: destLabel,
+          chainId: destConfig?.chainId ?? 11_155_111,
         });
-        try {
-          if (destConfig && switchChainAsync) {
-            await switchChainAsync({ chainId: destConfig.chainId });
-          }
-        } catch { /* user may cancel — proceed anyway */ }
-
-        const mintHash = await writeContractAsync({
-          chainId: destConfig?.chainId,
-          address: MESSAGE_TRANSMITTER_ADDRESS,
-          abi: MESSAGE_TRANSMITTER_ABI,
-          functionName: "receiveMessage",
-          args: [
-            attestationData.message as `0x${string}`,
-            attestationData.attestation as `0x${string}`,
-          ],
-        });
-        updateLastTxStep({ txHash: mintHash, domain: claimDest });
-        // Wait for mint tx on destination chain
-        const destRpc =
-          destConfig?.chainId === 11_155_111
-            ? "https://rpc.sepolia.org"
-            : `https://rpc.${(destConfig?.label || "").toLowerCase().replace(/\s+/g, "")}.org`;
-        try {
-          const destPub = createPublicClient({ transport: http(destRpc) });
-          const mintReceipt = await destPub.waitForTransactionReceipt({ hash: mintHash, timeout: 120_000 });
-          if (mintReceipt.status !== "success") throw new Error("Mint reverted on destination chain");
-        } catch (e) {
-          console.warn("Could not verify mint receipt on destination chain:", e);
-        }
-        updateLastTxStep({ status: "confirmed" });
       }
       setClaimModal(null);
       refetchBalance();
@@ -479,32 +503,14 @@ export default function DropsPage() {
         }
         updateLastTxStep({ status: "confirmed" });
 
-        // Step 3: Mint on destination chain
-        appendTxStep({ label: `Mint USDC on ${destLabel}`, status: "pending", domain: withdrawDest });
-        try {
-          if (destConfig && switchChainAsync) {
-            await switchChainAsync({ chainId: destConfig.chainId });
-          }
-        } catch { /* user may cancel */ }
-        const mintHash = await writeContractAsync({
-          chainId: destConfig?.chainId,
-          address: MESSAGE_TRANSMITTER_ADDRESS,
-          abi: MESSAGE_TRANSMITTER_ABI,
-          functionName: "receiveMessage",
-          args: [ad.message as `0x${string}`, ad.attestation as `0x${string}`],
+        // Step 3: Store mint data — user clicks "Mint" action button in TxModal
+        setPendingMint({
+          message: ad.message as `0x${string}`,
+          attestation: ad.attestation as `0x${string}`,
+          domain: withdrawDest,
+          label: destLabel,
+          chainId: destConfig?.chainId ?? 11_155_111,
         });
-        updateLastTxStep({ txHash: mintHash, domain: withdrawDest });
-        const destRpc = destConfig?.chainId === 11_155_111
-          ? "https://rpc.sepolia.org"
-          : `https://rpc.${(destConfig?.label || "").toLowerCase().replace(/\s+/g, "")}.org`;
-        try {
-          const destPub = createPublicClient({ transport: http(destRpc) });
-          const mr = await destPub.waitForTransactionReceipt({ hash: mintHash, timeout: 120_000 });
-          if (mr.status !== "success") throw new Error("Mint reverted");
-        } catch (e) {
-          console.warn("Could not verify mint:", e);
-        }
-        updateLastTxStep({ status: "confirmed" });
       }
       refetchBalance();
       refetchEarnings();
@@ -811,6 +817,9 @@ export default function DropsPage() {
         title={txFlow.title}
         steps={txFlow.steps}
         onClose={closeTxFlow}
+        actionLabel={pendingMint ? `Mint USDC on ${pendingMint.label}` : undefined}
+        onAction={pendingMint ? handleMint : undefined}
+        actionBusy={mintBusy}
       />
 
       {/* Claim modal */}
