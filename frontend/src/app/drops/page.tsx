@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   useAccount,
@@ -24,30 +24,16 @@ import {
   CCTP_DOMAINS,
 } from "@/lib/contracts";
 import { shortAddr } from "@/lib/utils";
-import { explorerAddress, explorerTx } from "@/lib/chain";
 import { ensureInjectiveChain, isInjectiveChain } from "@/lib/ensureInjective";
+import { TxModal, type TxStep } from "@/components/TxModal";
 import { INJECTIVE_EVM_CHAIN_ID } from "@/lib/wagmi";
 import {
   fetchFixtures,
   type PublicFixture,
 } from "@/lib/fixtures";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 
 type Tab = "drops" | "sponsor" | "feeder";
-
-interface DropInfo {
-  dropId: number;
-  matchId: number;
-  eventType: string;
-  minuteFrom: number;
-  minuteTo: number;
-  perWinnerAmount: bigint;
-  maxWinners: number;
-  claimedCount: number;
-  funded: bigint;
-  sponsor: Address;
-  active: boolean;
-}
 
 export default function DropsPage() {
   const router = useRouter();
@@ -90,6 +76,29 @@ export default function DropsPage() {
   const [claimedMap, setClaimedMap] = useState<Record<number, boolean>>({});
   const [claimModal, setClaimModal] = useState<{ dropId: number; perWinnerAmount: bigint } | null>(null);
   const [claimDest, setClaimDest] = useState<number>(29); // Injective same-chain by default
+
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [txFlow, setTxFlow] = useState<{ open: boolean; title: string; steps: TxStep[] }>({
+    open: false,
+    title: "",
+    steps: [],
+  });
+
+  function closeTxFlow() {
+    setTxFlow((p) => ({ ...p, open: false }));
+  }
+
+  function appendTxStep(step: TxStep) {
+    setTxFlow((p) => ({ ...p, steps: [...p.steps, step] }));
+  }
+
+  function updateLastTxStep(update: Partial<TxStep>) {
+    setTxFlow((p) => {
+      const steps = [...p.steps];
+      if (steps.length > 0) steps[steps.length - 1] = { ...steps[steps.length - 1], ...update };
+      return { ...p, steps };
+    });
+  }
 
   // --- Tab 2: Sponsor ---
   const [sponsorMatch, setSponsorMatch] = useState("");
@@ -173,7 +182,7 @@ export default function DropsPage() {
     load();
     const t = setInterval(load, 20_000);
     return () => clearInterval(t);
-  }, [hasDrops, pub]);
+  }, [hasDrops, pub, refreshKey]);
 
   // Check eligibility for each active drop
   useEffect(() => {
@@ -212,10 +221,12 @@ export default function DropsPage() {
   // Actions
   async function handleClaim(dropId: number) {
     if (!address || !DROPS_ADDRESS) return;
+
+    const label = claimDest === 29 ? "Claim Drop" : "Cross-Chain Claim";
+    setTxFlow({ open: true, title: label, steps: [{ label, status: "pending" }] });
     try {
       await ensureInjectiveChain(config);
       if (claimDest === 29) {
-        // Same-chain
         const hash = await writeContractAsync({
           chainId: INJECTIVE_EVM_CHAIN_ID,
           address: DROPS_ADDRESS,
@@ -223,9 +234,13 @@ export default function DropsPage() {
           functionName: "claim",
           args: [BigInt(dropId)],
         });
-        toast.success(`Claimed! Tx: ${hash.slice(0, 12)}…`);
+        updateLastTxStep({ txHash: hash });
+        if (pub) {
+          const receipt = await pub.waitForTransactionReceipt({ hash, timeout: 120_000 });
+          if (receipt.status !== "success") throw new Error("Claim reverted on-chain");
+        }
+        updateLastTxStep({ status: "confirmed" });
       } else {
-        // Cross-chain via CCTP
         const mintRecipient = pad(address, { size: 32 }) as `0x${string}`;
         const hash = await writeContractAsync({
           chainId: INJECTIVE_EVM_CHAIN_ID,
@@ -234,23 +249,34 @@ export default function DropsPage() {
           functionName: "claimToChain",
           args: [BigInt(dropId), claimDest, mintRecipient],
         });
-        toast.success(`Cross-chain claim initiated! Tx: ${hash.slice(0, 12)}…`);
+        updateLastTxStep({ txHash: hash });
+        if (pub) {
+          const receipt = await pub.waitForTransactionReceipt({ hash, timeout: 120_000 });
+          if (receipt.status !== "success") throw new Error("Cross-chain claim reverted on-chain");
+        }
+        updateLastTxStep({ status: "confirmed" });
       }
       setClaimModal(null);
+      refetchBalance();
+      setRefreshKey((k) => k + 1);
     } catch (e) {
+      updateLastTxStep({ status: "error" });
       toast.error(e instanceof Error ? e.message : "Claim failed");
     }
   }
 
   async function handleCreateDrop() {
     if (!address || !DROPS_ADDRESS) return;
+
+    setTxFlow({ open: true, title: "Creating Drop", steps: [] });
     try {
       await ensureInjectiveChain(config);
       const amount = parseUnits(sponsorAmount, 6);
       const total = amount * BigInt(sponsorMaxWinners);
       const matchId = Number(sponsorMatch);
 
-      // Approve USDC first
+      // Step 1: Approve USDC
+      appendTxStep({ label: "Approve USDC", status: "pending" });
       const approveHash = await writeContractAsync({
         chainId: INJECTIVE_EVM_CHAIN_ID,
         address: USDC_ADDRESS,
@@ -258,9 +284,15 @@ export default function DropsPage() {
         functionName: "approve",
         args: [DROPS_ADDRESS, total],
       });
-      if (pub) await pub.waitForTransactionReceipt({ hash: approveHash, timeout: 120_000 });
+      updateLastTxStep({ txHash: approveHash });
+      if (pub) {
+        const receipt = await pub.waitForTransactionReceipt({ hash: approveHash, timeout: 120_000 });
+        if (receipt.status !== "success") throw new Error("Approve USDC reverted on-chain");
+      }
+      updateLastTxStep({ status: "confirmed" });
 
-      // Create drop
+      // Step 2: Create drop
+      appendTxStep({ label: "Create Drop", status: "pending" });
       const hash = await writeContractAsync({
         chainId: INJECTIVE_EVM_CHAIN_ID,
         address: DROPS_ADDRESS,
@@ -268,9 +300,14 @@ export default function DropsPage() {
         functionName: "createDrop",
         args: [BigInt(matchId), sponsorEvent, sponsorMinFrom, sponsorMinTo, amount, sponsorMaxWinners],
       });
-      toast.success(`Drop created! Tx: ${hash.slice(0, 12)}…`);
+      updateLastTxStep({ txHash: hash });
+      if (pub) {
+        const receipt = await pub.waitForTransactionReceipt({ hash, timeout: 120_000 });
+        if (receipt.status !== "success") throw new Error("Create drop reverted on-chain");
+      }
+      updateLastTxStep({ status: "confirmed" });
 
-      // Whitelist wallets if provided
+      // Step 3: Whitelist wallets if provided
       if (sponsorWalletsText.trim()) {
         const wallets = sponsorWalletsText
           .split("\n")
@@ -283,6 +320,7 @@ export default function DropsPage() {
             functionName: "nextDropId",
           })) as bigint;
           const dropId = Number(nextId) - 1;
+          appendTxStep({ label: `Whitelist ${wallets.length} wallet(s)`, status: "pending" });
           const whitelistHash = await writeContractAsync({
             chainId: INJECTIVE_EVM_CHAIN_ID,
             address: DROPS_ADDRESS,
@@ -290,16 +328,28 @@ export default function DropsPage() {
             functionName: "whitelist",
             args: [BigInt(dropId), wallets.map((w) => w as Address)],
           });
-          toast.success(`Whitelisted ${wallets.length} wallet(s)!`);
+          updateLastTxStep({ txHash: whitelistHash });
+          if (pub) {
+            const receipt = await pub.waitForTransactionReceipt({ hash: whitelistHash, timeout: 120_000 });
+            if (receipt.status !== "success") throw new Error("Whitelist reverted on-chain");
+          }
+          updateLastTxStep({ status: "confirmed" });
         }
       }
+
+      refetchBalance();
+      setRefreshKey((k) => k + 1);
     } catch (e) {
+      updateLastTxStep({ status: "error" });
       toast.error(e instanceof Error ? e.message : "Create drop failed");
     }
   }
 
   async function handleWithdraw() {
     if (!address || !TREASURY_ADDRESS) return;
+
+    const label = withdrawDest === 29 ? "Withdraw" : "Cross-Chain Withdraw";
+    setTxFlow({ open: true, title: label, steps: [{ label, status: "pending" }] });
     try {
       await ensureInjectiveChain(config);
       const amount = parseUnits(withdrawAmount || String(earnedUsdc), 6);
@@ -311,7 +361,12 @@ export default function DropsPage() {
           functionName: "withdraw",
           args: [amount, address],
         });
-        toast.success(`Withdrawn! Tx: ${hash.slice(0, 12)}…`);
+        updateLastTxStep({ txHash: hash });
+        if (pub) {
+          const receipt = await pub.waitForTransactionReceipt({ hash, timeout: 120_000 });
+          if (receipt.status !== "success") throw new Error("Withdraw reverted on-chain");
+        }
+        updateLastTxStep({ status: "confirmed" });
       } else {
         const mintRecipient = pad(address, { size: 32 }) as `0x${string}`;
         const hash = await writeContractAsync({
@@ -321,9 +376,17 @@ export default function DropsPage() {
           functionName: "withdrawToChain",
           args: [amount, withdrawDest, mintRecipient],
         });
-        toast.success(`Cross-chain withdrawal initiated! Tx: ${hash.slice(0, 12)}…`);
+        updateLastTxStep({ txHash: hash });
+        if (pub) {
+          const receipt = await pub.waitForTransactionReceipt({ hash, timeout: 120_000 });
+          if (receipt.status !== "success") throw new Error("Cross-chain withdraw reverted on-chain");
+        }
+        updateLastTxStep({ status: "confirmed" });
       }
+      refetchBalance();
+      refetchEarnings();
     } catch (e) {
+      updateLastTxStep({ status: "error" });
       toast.error(e instanceof Error ? e.message : "Withdraw failed");
     }
   }
@@ -343,6 +406,28 @@ export default function DropsPage() {
           Feeders earn treasury revenue from x402 queries.
         </p>
       </div>
+
+      {/* Wallet info bar */}
+      {address && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-ink-border bg-ink-card/50 px-4 py-3">
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-ink-muted">Balance:</span>
+            <span className="font-mono font-semibold text-cyan-accent">
+              {usdcBal != null ? (Number(usdcBal) / 1e6).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"} USDC
+            </span>
+          </div>
+          <a
+            href="https://faucet.circle.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-400 transition hover:bg-amber-500/20"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-droplets"><path d="M7 16.3c2.2 0 4-1.83 4-4.05 0-1.16-.57-2.26-1.71-3.19S7.29 6.75 7 5.3c-.29 1.45-1.14 2.84-2.29 3.76S3 11.1 3 12.25c0 2.22 1.8 4.05 4 4.05z"/><path d="M12.56 6.6A10.97 10.97 0 0 0 14 3.02c.5 2.5 2 4.9 4 6.5s3 3.5 3 5.5a6.98 6.98 0 0 1-11.91 4.97"/></svg>
+            Need USDC? Get testnet USDC from Circle faucet
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          </a>
+        </div>
+      )}
 
       {/* Tab bar */}
       <div className="flex gap-2 border-b border-ink-border pb-2">
@@ -461,10 +546,10 @@ export default function DropsPage() {
             </div>
             <button
               className="btn-primary w-full"
-              disabled={isPending || !sponsorMatch}
+              disabled={isPending || !sponsorMatch || txFlow.open}
               onClick={handleCreateDrop}
             >
-              {isPending ? "Creating…" : "Create Drop"}
+              {isPending || txFlow.open ? "Creating…" : "Create Drop"}
             </button>
           </div>
 
@@ -495,6 +580,7 @@ export default function DropsPage() {
             </div>
             <button
               className="btn-ghost w-full"
+              disabled={txFlow.open}
               onClick={async () => {
                 if (!sponsorWalletsText.trim()) return;
                 const wallets = sponsorWalletsText.split("\n").map(w => w.trim()).filter(w => w.startsWith("0x"));
@@ -505,6 +591,7 @@ export default function DropsPage() {
                   toast.error("Enter a valid Drop ID");
                   return;
                 }
+                setTxFlow({ open: true, title: "Whitelist Wallets", steps: [{ label: `Whitelist ${wallets.length} wallet(s) for drop #${dropIdNum}`, status: "pending" }] });
                 try {
                   await ensureInjectiveChain(config);
                   const hash = await writeContractAsync({
@@ -514,8 +601,14 @@ export default function DropsPage() {
                     functionName: "whitelist",
                     args: [BigInt(dropIdNum), wallets.map(w => w as Address)],
                   });
-                  toast.success(`Whitelisted ${wallets.length} wallet(s) for drop #${dropIdNum}!`);
+                  updateLastTxStep({ txHash: hash });
+                  if (pub) {
+                    const receipt = await pub.waitForTransactionReceipt({ hash, timeout: 120_000 });
+                    if (receipt.status !== "success") throw new Error("Whitelist reverted on-chain");
+                  }
+                  updateLastTxStep({ status: "confirmed" });
                 } catch (e) {
+                  updateLastTxStep({ status: "error" });
                   toast.error(e instanceof Error ? e.message : "Whitelist failed");
                 }
               }}
@@ -578,16 +671,24 @@ export default function DropsPage() {
                 </div>
                 <button
                   className="btn-primary w-full"
-                  disabled={isPending}
+                  disabled={isPending || txFlow.open}
                   onClick={handleWithdraw}
                 >
-                  {isPending ? "Withdrawing…" : "Withdraw"}
+                  {isPending || txFlow.open ? "Withdrawing…" : "Withdraw"}
                 </button>
               </div>
             </>
           )}
         </div>
       )}
+
+      {/* Transaction processing modal */}
+      <TxModal
+        open={txFlow.open}
+        title={txFlow.title}
+        steps={txFlow.steps}
+        onClose={closeTxFlow}
+      />
 
       {/* Claim modal */}
       {claimModal && (
@@ -609,11 +710,11 @@ export default function DropsPage() {
               </select>
             </div>
             <div className="flex gap-2">
-              <button className="btn-ghost flex-1" onClick={() => setClaimModal(null)}>
+              <button className="btn-ghost flex-1" disabled={txFlow.open} onClick={() => setClaimModal(null)}>
                 Cancel
               </button>
-              <button className="btn-primary flex-1" onClick={() => handleClaim(claimModal.dropId)}>
-                Claim
+              <button className="btn-primary flex-1" disabled={txFlow.open} onClick={() => handleClaim(claimModal.dropId)}>
+                {txFlow.open ? "Processing…" : "Claim"}
               </button>
             </div>
           </div>
@@ -636,8 +737,7 @@ function DropCard({
   alreadyClaimed: boolean;
   onClaim: () => void;
 }) {
-  // Read drop data via readContract
-  const { data: dropData } = useReadContract({
+  const { data: raw } = useReadContract({
     address: DROPS_ADDRESS || undefined,
     abi: FAN_DROPS_ABI,
     functionName: "drops",
@@ -645,13 +745,23 @@ function DropCard({
     query: { enabled: Boolean(DROPS_ADDRESS), refetchInterval: 15_000 },
   });
 
-  const drop = dropData as unknown as DropInfo | undefined;
-  if (!drop) return null;
+  const tuple = raw as readonly [bigint, string, number, number, bigint, number, number, bigint, string, boolean] | undefined;
+  if (!tuple) return null;
 
-  const fixture = fixtures.find((f) => f.id === drop.matchId);
-  const label = fixture?.label || `Match #${drop.matchId}`;
-  const progress = drop.maxWinners > 0 ? (drop.claimedCount / drop.maxWinners) * 100 : 0;
-  const perWinner = Number(drop.perWinnerAmount) / 1e6;
+  const matchId = Number(tuple[0]);
+  const eventType = tuple[1];
+  const minuteFrom = tuple[2];
+  const minuteTo = tuple[3];
+  const perWinnerAmount = tuple[4];
+  const maxWinners = tuple[5];
+  const claimedCount = tuple[6];
+  const sponsor = tuple[8];
+  const active = tuple[9];
+
+  const fixture = fixtures.find((f) => f.id === matchId);
+  const label = fixture?.label || `Match #${matchId}`;
+  const progress = maxWinners > 0 ? (claimedCount / maxWinners) * 100 : 0;
+  const perWinner = Number(perWinnerAmount) / 1e6;
 
   return (
     <motion.div
@@ -661,15 +771,15 @@ function DropCard({
     >
       <div className="flex items-center justify-between">
         <span className="text-xs font-mono text-ink-muted">Drop #{dropId}</span>
-        <span className={`pill ${drop.active ? "bg-emerald-500/15 text-emerald-400" : "bg-ink-muted/15 text-ink-muted"}`}>
-          {drop.active ? "Active" : "Inactive"}
+        <span className={`pill ${active ? "bg-emerald-500/15 text-emerald-400" : "bg-ink-muted/15 text-ink-muted"}`}>
+          {active ? "Active" : "Inactive"}
         </span>
       </div>
       <div>
         <div className="font-medium text-sm">{label}</div>
         <div className="text-xs text-ink-muted mt-1">
-          Trigger: <span className="text-cyan-accent">{drop.eventType}</span>
-          {" · "}Min {drop.minuteFrom}-{drop.minuteTo === 0xFFFFFFFF ? "∞" : drop.minuteTo}
+          Trigger: <span className="text-cyan-accent">{eventType}</span>
+          {" · "}Min {minuteFrom}-{minuteTo === 0xFFFFFFFF ? "∞" : minuteTo}
         </div>
       </div>
       <div className="flex items-center justify-between text-sm">
@@ -678,7 +788,7 @@ function DropCard({
       </div>
       <div>
         <div className="flex items-center justify-between text-xs text-ink-muted mb-1">
-          <span>{drop.claimedCount} / {drop.maxWinners} claimed</span>
+          <span>{claimedCount} / {maxWinners} claimed</span>
           <span>{progress.toFixed(0)}%</span>
         </div>
         <div className="h-1.5 rounded-full bg-ink-border overflow-hidden">
@@ -689,8 +799,8 @@ function DropCard({
         </div>
       </div>
       <div className="flex items-center justify-between text-xs">
-        <span className="text-ink-muted">Sponsor: {shortAddr(drop.sponsor)}</span>
-        {eligible && !alreadyClaimed && drop.active && (
+        <span className="text-ink-muted">Sponsor: {shortAddr(sponsor)}</span>
+        {eligible && !alreadyClaimed && active && (
           <button className="btn-primary text-xs py-1 px-3" onClick={onClaim}>
             Claim
           </button>
@@ -698,7 +808,7 @@ function DropCard({
         {alreadyClaimed && (
           <span className="text-emerald-400 text-xs">✅ Claimed</span>
         )}
-        {!eligible && drop.active && (
+        {!eligible && active && (
           <span className="text-amber-400 text-xs">Not whitelisted</span>
         )}
       </div>

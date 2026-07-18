@@ -82,6 +82,8 @@ contract FanDrops is AccessControl {
     }
 
     /// @notice Create a sponsor-funded drop. Pulls perWinnerAmount * maxWinners USDC.
+    /// Anyone with enough USDC can create a drop — SPONSOR_ROLE is not required so the
+    /// hackathon demo stays frictionless.
     function createDrop(
         uint256 matchId,
         string calldata eventType,
@@ -89,7 +91,7 @@ contract FanDrops is AccessControl {
         uint32 minuteTo,
         uint256 perWinnerAmount,
         uint32 maxWinners
-    ) external onlyRole(SPONSOR_ROLE) returns (uint256 dropId) {
+    ) external returns (uint256 dropId) {
         require(maxWinners > 0, "maxWinners zero");
         require(perWinnerAmount > 0, "perWinnerAmount zero");
         uint256 total = perWinnerAmount * maxWinners;

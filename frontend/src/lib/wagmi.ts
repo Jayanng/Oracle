@@ -52,6 +52,12 @@ export const config = createConfig({
   transports: {
     [injectiveEvmTestnet.id]: http(rpc),
   },
-  multiInjectedProviderDiscovery: true,
+  // Disable EIP-6963 multi-provider discovery. When true (the wagmi default),
+  // wagmi dispatches `eip6963:requestProvider`, which makes some wallet
+  // extensions re-inject `window.ethereum` via Object.defineProperty and throw
+  // `TypeError: Cannot redefine property: ethereum` when another provider has
+  // already claimed it as non-configurable. This app is single-chain with one
+  // injected connector, so we read `window.ethereum` directly instead.
+  multiInjectedProviderDiscovery: false,
   ssr: true,
 });
