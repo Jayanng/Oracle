@@ -754,7 +754,7 @@ function sanitizeTrace(
   });
 }
 
-app.post("/x402-demo", async (req, res) => {
+app.post("/x402-premium", async (req, res) => {
   try {
     const query = String(req.body?.query || req.body?.label || "");
     const matchId =

@@ -8,7 +8,7 @@ const AGENT =
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const r = await fetch(`${AGENT}/x402-demo`, {
+    const r = await fetch(`${AGENT}/x402-premium`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
