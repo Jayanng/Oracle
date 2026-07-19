@@ -15,8 +15,16 @@
 import type { WalletClient, Address, Hex } from "viem";
 import { INJECTIVE_EVM_CHAIN_ID } from "./wagmi";
 
+/**
+ * The browser pays the x402 paywall directly. We route through the Next.js
+ * server proxy (`/api/x402-proxy`) instead of calling :4021 directly so that
+ * `localhost` resolves on the server that actually runs the x402-endpoint —
+ * otherwise a teammate opening the UI from another machine would have their
+ * browser hit their own machine (which isn't running the endpoint) and fail
+ * with "failed to fetch".
+ */
 const X402_URL =
-  process.env.NEXT_PUBLIC_X402_URL || "http://localhost:4021";
+  process.env.NEXT_PUBLIC_X402_URL || "/api/x402-proxy";
 
 type PaymentRequirements = {
   scheme: "exact";
