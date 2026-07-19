@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   useAccount,
@@ -65,6 +65,19 @@ export default function DropsPage() {
   const [tab, setTab] = useState<Tab>("drops");
   const [fixtures, setFixtures] = useState<PublicFixture[]>([]);
   const { writeContractAsync, isPending } = useWriteContract();
+
+  // Injective's Cosmos SDK layer tracks account "sequence" which can lag
+  // MetaMask's cached nonce, producing "invalid sequence" broadcast errors
+  // when sending several txs in a session. Fetch the latest pending nonce from
+  // chain and pass it explicitly to every write so viem never reuses a stale one.
+  const nextNonce = useCallback(async () => {
+    if (!pub || !address) return undefined;
+    try {
+      return await pub.getTransactionCount({ address, blockTag: "pending" });
+    } catch {
+      return undefined;
+    }
+  }, [pub, address]);
   const { switchChainAsync } = useSwitchChain();
   const onInjective = isInjectiveChain(chainId);
 
@@ -349,6 +362,7 @@ export default function DropsPage() {
           abi: FAN_DROPS_ABI,
           functionName: "claim",
           args: [BigInt(dropId)],
+          nonce: await nextNonce(),
         });
         updateLastTxStep({ txHash: hash });
         if (pub) {
@@ -369,6 +383,7 @@ export default function DropsPage() {
           abi: FAN_DROPS_ABI,
           functionName: "claimToChain",
           args: [BigInt(dropId), claimDest, mintRecipient],
+          nonce: await nextNonce(),
         });
         updateLastTxStep({ txHash: hash });
         if (pub) {
@@ -437,6 +452,7 @@ export default function DropsPage() {
         abi: ERC20_ABI,
         functionName: "approve",
         args: [DROPS_ADDRESS, total],
+        nonce: await nextNonce(),
       });
       updateLastTxStep({ txHash: approveHash });
       if (pub) {
@@ -453,6 +469,7 @@ export default function DropsPage() {
         abi: FAN_DROPS_ABI,
         functionName: "createDrop",
         args: [BigInt(matchId), sponsorEvent, sponsorMinFrom, sponsorMinTo, amount, sponsorMaxWinners],
+        nonce: await nextNonce(),
       });
       updateLastTxStep({ txHash: hash });
       if (pub) {
@@ -481,6 +498,7 @@ export default function DropsPage() {
             abi: FAN_DROPS_ABI,
             functionName: "whitelist",
             args: [BigInt(dropId), wallets.map((w) => w as Address)],
+            nonce: await nextNonce(),
           });
           updateLastTxStep({ txHash: whitelistHash });
           if (pub) {
@@ -514,6 +532,7 @@ export default function DropsPage() {
           abi: TREASURY_ABI,
           functionName: "withdraw",
           args: [amount, address],
+          nonce: await nextNonce(),
         });
         updateLastTxStep({ txHash: hash });
         if (pub) {
@@ -533,6 +552,7 @@ export default function DropsPage() {
           abi: TREASURY_ABI,
           functionName: "withdrawToChain",
           args: [amount, withdrawDest, mintRecipient],
+          nonce: await nextNonce(),
         });
         updateLastTxStep({ txHash: hash });
         if (pub) {
@@ -815,6 +835,7 @@ export default function DropsPage() {
                     abi: FAN_DROPS_ABI,
                     functionName: "whitelist",
                     args: [BigInt(dropIdNum), wallets.map(w => w as Address)],
+                    nonce: await nextNonce(),
                   });
                   updateLastTxStep({ txHash: hash });
                   if (pub) {

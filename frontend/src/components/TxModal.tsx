@@ -1,6 +1,6 @@
 "use client";
 
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { Loader2, CheckCircle, XCircle, ExternalLink } from "lucide-react";
 import { explorerTx } from "@/lib/chain";
 
@@ -29,8 +29,6 @@ export function TxModal({
   onAction?: () => void;
   actionBusy?: boolean;
 }) {
-  if (!open) return null;
-
   const hasSteps = steps.length > 0;
   const anyError = hasSteps && steps.some((s) => s.status === "error");
   const waiting = !hasSteps || steps.some((s) => s.status === "pending");
@@ -38,12 +36,23 @@ export function TxModal({
   const allDone = hasSteps && steps.every((s) => s.status === "confirmed") && !showAction;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="card w-full max-w-md space-y-5"
-      >
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.15, ease: "easeOut" }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+        >
+          <motion.div
+            layout
+            initial={{ opacity: 0, scale: 0.96, y: 8 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.98, y: 4 }}
+            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+            className="card w-full max-w-md space-y-5"
+          >
         <div className="flex items-center justify-between">
           <h3 className="font-display font-semibold text-lg">{title}</h3>
           {(allDone || anyError) && (
@@ -115,12 +124,14 @@ export function TxModal({
             Done
           </button>
         )}
-        {anyError && (
-          <button className="btn-ghost w-full" onClick={onClose}>
-            Dismiss
-          </button>
-        )}
-      </motion.div>
-    </div>
+            {anyError && (
+              <button className="btn-ghost w-full" onClick={onClose}>
+                Dismiss
+              </button>
+            )}
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }

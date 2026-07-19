@@ -87,17 +87,21 @@ function b64decode<T>(s: string): T {
  * Pay the x402 premium-stats endpoint for `matchId` using the connected wallet.
  * Returns the premium data and the on-chain settlement receipt.
  */
+export type X402Stage = "challenge" | "sign" | "settle" | "done";
+
 export async function payPremiumStats(
   walletClient: WalletClient,
   account: Address,
   matchId: number,
   usdcAddress: Address,
   usdcName = "USDC",
-  usdcVersion = "2"
+  usdcVersion = "2",
+  onStage?: (stage: X402Stage) => void
 ): Promise<X402PayResult> {
   const url = `${X402_URL}/premium-stats?matchId=${matchId}`;
 
   // Step 1: hit the endpoint, expect 402
+  onStage?.("challenge");
   const challenge = await fetch(url, { method: "GET" });
   if (challenge.ok) {
     // Endpoint not paywalled (demo/open) — just return the data
@@ -130,6 +134,7 @@ export async function payPremiumStats(
   const domainVersion =
     typeof extra?.version === "string" ? extra.version : usdcVersion;
 
+  onStage?.("sign");
   const signature = await walletClient.signTypedData({
     account,
     domain: {
@@ -170,6 +175,7 @@ export async function payPremiumStats(
   };
 
   const header = b64encode(paymentPayload);
+  onStage?.("settle");
   const paid = await fetch(url, {
     method: "GET",
     headers: { "PAYMENT-SIGNATURE": header, "X-PAYMENT": header },
@@ -192,5 +198,6 @@ export async function payPremiumStats(
     ? b64decode<X402Receipt>(respHeader)
     : undefined;
 
+  onStage?.("done");
   return { data, receipt };
 }

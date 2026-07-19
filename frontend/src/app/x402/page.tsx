@@ -10,6 +10,7 @@ import { shortAddr } from "@/lib/utils";
 import { USDC_ADDRESS } from "@/lib/contracts";
 import { ensureInjectiveChain } from "@/lib/ensureInjective";
 import { payPremiumStats } from "@/lib/x402";
+import { TxModal, type TxStep } from "@/components/TxModal";
 import { toast } from "sonner";
 import { ChevronDown, Search, Check, X } from "lucide-react";
 
@@ -119,6 +120,10 @@ export default function X402Page() {
     matchLabel: string;
     whitelisted: boolean;
   } | null>(null);
+  const [payFlow, setPayFlow] = useState<{ open: boolean; steps: TxStep[] }>({
+    open: false,
+    steps: [],
+  });
 
   useEffect(() => {
     fetchFixtures().then((list) => {
@@ -214,6 +219,52 @@ export default function X402Page() {
     setError(null);
     setStats(null);
     setWhitelisted(false);
+
+    // Open the processing modal — walks through sign -> settle -> whitelist.
+    const SIGN = "Sign payment authorization";
+    const SETTLE = "Settling payment on-chain";
+    const WHITELIST = "Registering for fan drop";
+    setPayFlow({
+      open: true,
+      steps: [
+        { label: SIGN, status: "pending" },
+        { label: SETTLE, status: "pending" },
+        { label: WHITELIST, status: "pending" },
+      ],
+    });
+
+    const setStep = (label: string, status: TxStep["status"]) =>
+      setPayFlow((f) => ({
+        ...f,
+        steps: f.steps.map((s) => (s.label === label ? { ...s, status } : s)),
+      }));
+
+    // Fire whitelisting in parallel the moment the user signs, so it's
+    // usually already resolved by the time the success modal appears.
+    type WhitelistResult = { ok: boolean; dropId?: number; error?: string };
+    let whitelistPromise: Promise<WhitelistResult> | null = null;
+    const startWhitelist = () => {
+      if (whitelistPromise) return;
+      whitelistPromise = fetch("/api/whitelist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ matchId: selected.id, address, wallet: address }),
+      })
+        .then(async (wl): Promise<WhitelistResult> => {
+          const wlData = await wl.json().catch(() => ({}));
+          if (wl.ok && !wlData.error) {
+            return { ok: true, dropId: wlData.dropId as number | undefined };
+          }
+          return { ok: false, error: wlData.error || `HTTP ${wl.status}` };
+        })
+        .catch(
+          (e): WhitelistResult => ({
+            ok: false,
+            error: e instanceof Error ? e.message : "network error",
+          })
+        );
+    };
+
     try {
       // Ensure the wallet is on Injective EVM before signing the payment.
       await ensureInjectiveChain(config);
@@ -223,7 +274,18 @@ export default function X402Page() {
         walletClient,
         address,
         selected.id,
-        USDC_ADDRESS as `0x${string}`
+        USDC_ADDRESS as `0x${string}`,
+        undefined,
+        undefined,
+        (stage) => {
+          if (stage === "sign") setStep(SIGN, "pending");
+          if (stage === "settle") {
+            setStep(SIGN, "confirmed");
+            setStep(SETTLE, "pending");
+            startWhitelist();
+          }
+          if (stage === "done") setStep(SETTLE, "confirmed");
+        }
       );
 
       const result: PremiumStats = {
@@ -244,40 +306,59 @@ export default function X402Page() {
       setStats(result);
       setStatus("success");
 
+      // Attach the settlement tx to the on-chain step (keep modal open so the
+      // user sees both steps confirmed for a beat before we morph to success).
+      setPayFlow((f) => ({
+        ...f,
+        steps: f.steps.map((s) =>
+          s.label === SETTLE
+            ? {
+                ...s,
+                status: "confirmed",
+                txHash: receipt?.transaction as `0x${string}` | undefined,
+              }
+            : s
+        ),
+      }));
+
       // Amount charged for premium stats (0.10 USDC = 100000 in 6dp).
       const amountUsdc = "0.10";
-      toast.success("Payment successful — premium analytics unlocked");
 
-      // Auto-whitelist the connected payer for this match's drop, using the
-      // exact wallet that just paid via x402 (never a fixed address).
+      // Resolve whitelisting BEFORE showing success — it was kicked off in
+      // parallel during settlement, so it's usually already done. This keeps the
+      // last processing step accurate and lets the success modal appear fully
+      // final (no in-modal spinner or state changes).
+      startWhitelist();
       let didWhitelist = false;
       try {
-        const wl = await fetch("/api/whitelist", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ matchId: selected.id, address, wallet: address }),
-        });
-        const wlData = await wl.json().catch(() => ({}));
-        if (wl.ok && !wlData.error) {
+        const wlRes: WhitelistResult =
+          (await whitelistPromise) ?? { ok: false, error: "no result" };
+        if (wlRes.ok) {
           didWhitelist = true;
           setWhitelisted(true);
+          setStep(WHITELIST, "confirmed");
           toast.success(
-            wlData.dropId != null
-              ? `Whitelisted for Drop #${wlData.dropId} — go claim your reward`
+            wlRes.dropId != null
+              ? `Whitelisted for Drop #${wlRes.dropId} — go claim your reward`
               : "You're whitelisted for this match's fan drop"
           );
         } else {
-          const reason =
-            wlData.error || `whitelist failed (HTTP ${wl.status})`;
+          const reason = wlRes.error || "whitelist failed";
           console.warn("[x402] auto-whitelist failed:", reason);
+          setStep(WHITELIST, "error");
           toast.error(`Auto-whitelist failed: ${reason}`);
         }
       } catch (e) {
         const reason = e instanceof Error ? e.message : "network error";
         console.warn("[x402] auto-whitelist error:", reason);
+        setStep(WHITELIST, "error");
         toast.error(`Auto-whitelist failed: ${reason}`);
       }
 
+      // All steps resolved — brief beat so the final checks register, then
+      // morph straight into a fully-final success modal (nothing loads inside).
+      await new Promise((r) => setTimeout(r, 400));
+      setPayFlow((f) => ({ ...f, open: false }));
       setSuccessModal({
         amountUsdc,
         txHash: receipt?.transaction,
@@ -291,6 +372,17 @@ export default function X402Page() {
       const msg = e instanceof Error ? e.message : "Payment failed";
       setError(msg);
       setStatus("error");
+      // Mark the first still-pending step as failed so the modal shows why.
+      setPayFlow((f) => {
+        const idx = f.steps.findIndex((s) => s.status === "pending");
+        if (idx === -1) return f;
+        return {
+          ...f,
+          steps: f.steps.map((s, i) =>
+            i === idx ? { ...s, status: "error", label: `${s.label} — ${msg}` } : s
+          ),
+        };
+      });
       toast.error(msg);
     }
   }, [selected, walletClient, address, config]);
@@ -963,6 +1055,14 @@ export default function X402Page() {
       )}
       </div>
 
+      {/* Payment processing modal — sign → settle on-chain */}
+      <TxModal
+        open={payFlow.open}
+        title="Processing payment"
+        steps={payFlow.steps}
+        onClose={() => setPayFlow({ open: false, steps: [] })}
+      />
+
       {/* Payment success modal */}
       <AnimatePresence>
         {successModal && (
@@ -970,13 +1070,16 @@ export default function X402Page() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            transition={{ duration: 0.15, ease: "easeOut" }}
             className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
             onClick={() => setSuccessModal(null)}
           >
             <motion.div
-              initial={{ opacity: 0, scale: 0.94, y: 12 }}
+              layout
+              initial={{ opacity: 0, scale: 0.96, y: 8 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.94, y: 12 }}
+              exit={{ opacity: 0, scale: 0.98, y: 4 }}
+              transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
               className="w-full max-w-md rounded-2xl border border-emerald-500/25 bg-ink-card p-6"
               onClick={(e) => e.stopPropagation()}
             >
@@ -1023,9 +1126,7 @@ export default function X402Page() {
                         : "text-amber-400"
                     }`}
                   >
-                    {successModal.whitelisted
-                      ? "Whitelisted"
-                      : "Whitelist pending"}
+                    {successModal.whitelisted ? "Whitelisted" : "Whitelist pending"}
                   </span>
                 </div>
               </div>
