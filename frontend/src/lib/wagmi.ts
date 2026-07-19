@@ -1,5 +1,4 @@
 import { http, createConfig } from "wagmi";
-import { injected } from "wagmi/connectors";
 import type { Chain } from "viem";
 
 /** Injective EVM testnet — NEVER default to Ethereum mainnet (1). */
@@ -39,9 +38,21 @@ export const sepolia = {
   testnet: true,
 } as const satisfies Chain;
 
+/**
+ * Wallet discovery via EIP-6963 (`multiInjectedProviderDiscovery`).
+ *
+ * We deliberately do NOT pass an explicit `injected()` connector. When wagmi is
+ * given a custom injected connector it grabs `window.ethereum` (MetaMask) and
+ * that single connector suppresses the per-wallet EIP-6963 discovery — so
+ * Rabby / Rainbow / Coinbase etc. never show up. By passing NO connectors,
+ * wagmi auto-creates one connector per detected EIP-6963 wallet AND a fallback
+ * legacy `injected` connector for browsers with only `window.ethereum`.
+ *
+ * The UI then lists every detected connector so the user picks which wallet to
+ * connect (instead of forcing MetaMask).
+ */
 export const config = createConfig({
   chains: [injectiveEvmTestnet, sepolia],
-  connectors: [injected({ shimDisconnect: true })],
   transports: {
     [injectiveEvmTestnet.id]: http(injRpc),
     [sepolia.id]: http(sepoliaRpc),
