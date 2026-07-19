@@ -10,10 +10,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
+      - name: Install Solidity dependencies
+        working-directory: contracts
+        run: |
+          forge install foundry-rs/forge-std@v1.9.5 --no-git
+          forge install OpenZeppelin/openzeppelin-contracts@v5.6.1 --no-git
       - name: Test
         working-directory: contracts
         run: forge test -vv
