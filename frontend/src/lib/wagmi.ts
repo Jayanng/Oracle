@@ -46,6 +46,6 @@ export const config = createConfig({
     [injectiveEvmTestnet.id]: http(injRpc),
     [sepolia.id]: http(sepoliaRpc),
   },
-  multiInjectedProviderDiscovery: false,
+  multiInjectedProviderDiscovery: true,
   ssr: true,
 });

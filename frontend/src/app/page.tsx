@@ -1,8 +1,5 @@
 "use client";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { useAccount } from "wagmi";
 import {
   Activity,
   Bot,
@@ -13,12 +10,6 @@ import {
 } from "lucide-react";
 
 export default function LandingPage() {
-  const router = useRouter();
-  const { isConnected } = useAccount();
-
-  useEffect(() => {
-    if (isConnected) router.replace("/dashboard");
-  }, [isConnected, router]);
   return (
     <div className="relative">
       {/* Full-screen background */}

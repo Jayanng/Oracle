@@ -165,7 +165,7 @@ export default function DashboardPage() {
               className={`shrink-0 rounded-lg px-4 py-1.5 text-[11px] font-bold uppercase tracking-wider transition-all duration-200 ${
                 stageKey === s.key
                   ? "bg-[#4E46FF]/20 text-[#4E46FF] ring-1 ring-[#4E46FF]/30"
-                  : "text-[#64748B] hover:text-white"
+                  : "text-[#94A3B8] hover:text-white"
               }`}
             >
               {s.label}
@@ -195,7 +195,7 @@ export default function DashboardPage() {
                     <span className="text-[10px] text-[#4E46FF] font-bold">vs</span>
                     <span>{fx.away}</span>
                   </div>
-                  <div className="mt-0.5 text-[10px] text-[#64748B]">
+                  <div className="mt-0.5 text-[10px] text-[#94A3B8]">
                     {fx.kickoffUtcLabel || fx.kickoffUtc || ""}
                   </div>
                 </button>
@@ -203,7 +203,7 @@ export default function DashboardPage() {
             })}
           </div>
         ) : (
-          <p className="py-4 text-center text-xs text-[#64748B]">
+          <p className="py-4 text-center text-xs text-[#94A3B8]">
             No fixtures for this stage yet.
           </p>
         )}

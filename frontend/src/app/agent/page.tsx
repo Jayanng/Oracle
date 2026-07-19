@@ -60,9 +60,7 @@ function AgentInner() {
     focus
       ? `What was the latest event for ${focus}?`
       : "List World Cup fixtures",
-    focus
-      ? `Get premium stats for ${focus}`
-      : "Show me finished matches",
+    focus ? `Get premium stats for ${focus}` : "Show me finished matches",
     "Create a drop: 0.5 USDC each to the first 20 wallets when Argentina scores",
     "How much have I earned as a feeder?",
   ];
@@ -148,136 +146,182 @@ function AgentInner() {
   }
 
   return (
-    <div className="mx-auto flex h-[calc(100vh-8rem)] max-w-7xl flex-col gap-4 px-4 py-4 lg:flex-row">
-      {/* Chat */}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col rounded-xl border border-ink-border bg-ink-card">
-        <div className="flex items-center gap-3 border-b border-ink-border px-4 py-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-cyan-accent/15 text-cyan-accent">
-            <Bot className="h-5 w-5" />
-          </div>
-          <div>
-            <div className="font-display font-semibold">CupAgent</div>
-            <div className="text-xs text-ink-muted">
-              🟢 Online · MCP tools · Groq / deterministic
-              {lastMode ? ` · ${lastMode}` : ""}
+    <div className="relative">
+      <div
+        className="pointer-events-none fixed inset-0 bg-cover bg-center bg-no-repeat opacity-10"
+        style={{ backgroundImage: "url('/field.png')" }}
+      />
+
+      {/* Header bar — matches dashboard stage bar */}
+      <div className="sticky top-0 z-30 border-b border-[#1E293B] bg-[#0B0F19]/95 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-cyan-accent/15 text-cyan-accent ring-1 ring-cyan-accent/30">
+              <Bot className="h-5 w-5" />
             </div>
-          </div>
-        </div>
-
-        <div className="border-b border-ink-border px-4 py-2">
-          <div className="text-xs text-ink-muted">
-            Focus:{" "}
-            <span className="text-cyan-accent">
-              {focus || "any fixture (use team names)"}
-            </span>
-          </div>
-          {fixtures.length > 0 && (
-            <select
-              className="mt-2 w-full rounded-lg border border-ink-border bg-ink px-2 py-1.5 text-xs"
-              value={focus}
-              onChange={(e) => setFocus(e.target.value)}
-            >
-              <option value="">Select fixture (optional)</option>
-              {fixtures.slice(0, 80).map((f) => (
-                <option key={f.label} value={f.label}>
-                  {f.label} · {f.status}
-                </option>
-              ))}
-            </select>
-          )}
-          <div className="mt-2 flex flex-wrap gap-2">
-            {chips.map((c) => (
-              <button
-                key={c}
-                type="button"
-                onClick={() => send(c)}
-                className="rounded-full border border-ink-border px-3 py-1 text-xs text-ink-muted transition hover:border-cyan-accent/50 hover:text-cyan-accent"
-              >
-                {c}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
-          {messages.map((m, i) => (
-            <div
-              key={i}
-              className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
-            >
-              <div
-                className={`max-w-[85%] rounded-2xl px-4 py-2 text-sm leading-relaxed ${
-                  m.role === "user"
-                    ? "bg-cyan-accent text-ink"
-                    : "border border-ink-border bg-ink"
-                }`}
-              >
-                <MessageBody text={m.content} />
+            <div>
+              <div className="font-display text-sm font-bold text-white">
+                CupAgent
+              </div>
+              <div className="flex items-center gap-1.5 text-[11px] text-ink-muted">
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                Online · MCP tools · Groq
+                {lastMode ? ` · ${lastMode}` : ""}
               </div>
             </div>
-          ))}
-          {loading && (
-            <div className="text-xs text-ink-muted">CupAgent is thinking…</div>
-          )}
-          <div ref={bottomRef} />
+          </div>
+          <span
+            className={`pill text-[10px] ${
+              focus ? "bg-cyan-accent/15 text-cyan-accent" : "bg-ink-card text-ink-muted"
+            }`}
+          >
+            {focus || "any fixture"}
+          </span>
         </div>
-
-        <form
-          className="flex gap-2 border-t border-ink-border p-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            send(input);
-          }}
-        >
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                send(input);
-              }
-            }}
-            rows={1}
-            placeholder='e.g. "latest event for Australia vs Turkey"'
-            className="flex-1 resize-none rounded-lg border border-ink-border bg-ink px-3 py-2 text-sm outline-none focus:border-cyan-accent"
-          />
-          <button type="submit" className="btn-primary px-3" disabled={loading}>
-            <Send className="h-4 w-4" />
-          </button>
-        </form>
       </div>
 
-      {/* Batch 1: Action Log — uses existing chat `trace` field only */}
-      <aside className="flex h-48 shrink-0 flex-col overflow-hidden rounded-xl border border-ink-border bg-ink-card lg:h-auto lg:w-[320px]">
-        <div className="border-b border-ink-border px-4 py-3">
-          <div className="font-display text-sm font-semibold">
-            Agent Action Log
+      {/* Content */}
+      <div className="mx-auto max-w-7xl px-4 pb-6 pt-4">
+        <div className="grid gap-4 lg:grid-cols-3">
+          {/* Chat card */}
+          <div className="card flex h-[calc(100vh-13rem)] flex-col p-0 lg:col-span-2">
+            {/* Fixture + suggestion chips */}
+            <div className="border-b border-ink-border p-4">
+              {fixtures.length > 0 && (
+                <select
+                  className="w-full rounded-lg border border-ink-border bg-ink px-3 py-2 text-xs text-white outline-none transition focus:border-cyan-accent"
+                  value={focus}
+                  onChange={(e) => setFocus(e.target.value)}
+                >
+                  <option value="">Select fixture (optional)</option>
+                  {fixtures.slice(0, 80).map((f) => (
+                    <option key={f.label} value={f.label}>
+                      {f.label} · {f.status}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <div className="mt-2.5 flex flex-wrap gap-2">
+                {chips.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => send(c)}
+                    className="rounded-full border border-ink-border px-3 py-1 text-[11px] text-ink-muted transition hover:border-cyan-accent/50 hover:text-cyan-accent"
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Messages */}
+            <div className="flex-1 space-y-3 overflow-y-auto p-4">
+              {messages.map((m, i) => (
+                <div
+                  key={i}
+                  className={`flex ${
+                    m.role === "user" ? "justify-end" : "justify-start"
+                  }`}
+                >
+                  {m.role === "assistant" && (
+                    <div className="mr-2 mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-cyan-accent/15 text-cyan-accent ring-1 ring-cyan-accent/25">
+                      <Bot className="h-3.5 w-3.5" />
+                    </div>
+                  )}
+                  <div
+                    className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+                      m.role === "user"
+                        ? "bg-cyan-accent text-white"
+                        : "border border-ink-border bg-ink text-white"
+                    }`}
+                  >
+                    <MessageBody text={m.content} />
+                  </div>
+                </div>
+              ))}
+              {loading && (
+                <div className="flex items-center gap-2 pl-9 text-xs text-ink-muted">
+                  <span className="flex gap-1">
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-cyan-accent [animation-delay:-0.3s]" />
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-cyan-accent [animation-delay:-0.15s]" />
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-cyan-accent" />
+                  </span>
+                  CupAgent is thinking…
+                </div>
+              )}
+              <div ref={bottomRef} />
+            </div>
+
+            {/* Composer */}
+            <form
+              className="flex gap-2 border-t border-ink-border p-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                send(input);
+              }}
+            >
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    send(input);
+                  }
+                }}
+                rows={1}
+                placeholder='e.g. "latest event for Australia vs Turkey"'
+                className="flex-1 resize-none rounded-lg border border-ink-border bg-ink px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-ink-muted focus:border-cyan-accent"
+              />
+              <button
+                type="submit"
+                className="flex items-center justify-center rounded-lg bg-cyan-accent px-4 text-white transition-colors hover:bg-[#3f38e0] disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={loading || !input.trim()}
+              >
+                <Send className="h-4 w-4" />
+              </button>
+            </form>
           </div>
-          <div className="text-[11px] text-ink-muted">
-            MCP tools · x402 · settle txs
+
+          {/* Activity card */}
+          <div className="card flex h-[calc(100vh-13rem)] flex-col p-0">
+            <div className="border-b border-ink-border p-4">
+              <h3 className="font-display text-sm font-semibold text-white">
+                Agent Action Log
+              </h3>
+              <div className="text-[11px] text-ink-muted">
+                MCP tools · x402 · settle txs
+              </div>
+            </div>
+            <div className="flex-1 space-y-2 overflow-y-auto p-3">
+              {traceLog.length === 0 && (
+                <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
+                  <Wrench className="h-6 w-6 text-ink-border" />
+                  <p className="max-w-[180px] text-xs text-ink-muted">
+                    Tool calls appear here when CupAgent runs MCP tools.
+                  </p>
+                </div>
+              )}
+              {traceLog.map((t, i) => (
+                <TraceCard
+                  key={`${t.tool}-${t.ms}-${i}-${t.at || i}`}
+                  entry={t}
+                />
+              ))}
+            </div>
+            {traceLog.length > 0 && (
+              <button
+                type="button"
+                className="border-t border-ink-border p-3 text-xs font-medium text-ink-muted transition hover:text-white"
+                onClick={() => setTraceLog([])}
+              >
+                Clear log
+              </button>
+            )}
           </div>
         </div>
-        <div className="flex-1 space-y-2 overflow-y-auto p-3">
-          {traceLog.length === 0 && (
-            <p className="py-8 text-center text-xs text-ink-muted">
-              Tool calls appear here when CupAgent runs MCP tools.
-            </p>
-          )}
-          {traceLog.map((t, i) => (
-            <TraceCard key={`${t.tool}-${t.ms}-${i}-${t.at || i}`} entry={t} />
-          ))}
-        </div>
-        {traceLog.length > 0 && (
-          <button
-            type="button"
-            className="border-t border-ink-border px-3 py-2 text-xs text-ink-muted hover:text-white"
-            onClick={() => setTraceLog([])}
-          >
-            Clear log
-          </button>
-        )}
-      </aside>
+      </div>
     </div>
   );
 }
@@ -307,7 +351,7 @@ function TraceCard({ entry }: { entry: TraceEntry }) {
   const isSettle = entry.tool.includes("settle");
 
   return (
-    <div className="rounded-lg border border-ink-border/80 bg-ink/60 px-3 py-2 text-[11px]">
+    <div className="rounded-lg border border-ink-border/60 bg-ink/50 px-3 py-2 text-[11px] transition hover:border-cyan-accent/40">
       <div className="flex items-start gap-2">
         <span className="mt-0.5 text-cyan-accent">
           {isPremium ? (
@@ -368,7 +412,7 @@ function MessageBody({ text }: { text: string }) {
           return (
             <code
               key={i}
-              className="rounded bg-black/30 px-1 font-mono text-[12px]"
+              className="rounded bg-white/10 px-1 font-mono text-[12px]"
             >
               {p.slice(1, -1)}
             </code>
@@ -381,7 +425,7 @@ function MessageBody({ text }: { text: string }) {
               href={linkMatch[2]}
               target="_blank"
               rel="noreferrer"
-              className="text-cyan-accent underline decoration-dotted underline-offset-2 hover:text-cyan-300 font-mono text-[12px]"
+              className="text-cyan-accent underline decoration-dotted underline-offset-2 hover:text-[#6d66ff] font-mono text-[12px]"
             >
               {linkMatch[1]}
             </a>

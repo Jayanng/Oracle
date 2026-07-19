@@ -296,13 +296,38 @@ export default function X402Page() {
   }, [selected, walletClient, address, config]);
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6 px-4 py-8">
-      <div>
-        <h1 className="font-display text-3xl font-bold">Premium Analytics</h1>
-        <p className="mt-1 text-ink-muted">
-          AI-powered match analysis delivered via x402 payments on Injective.
-        </p>
+    <div className="relative">
+      <div
+        className="pointer-events-none fixed inset-0 bg-cover bg-center bg-no-repeat opacity-10"
+        style={{ backgroundImage: "url('/field.png')" }}
+      />
+
+      {/* Sticky top bar — matches dashboard shell */}
+      <div className="sticky top-0 z-30 border-b border-[#1E293B] bg-[#0B0F19]/95 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
+          <div className="flex items-center gap-2">
+            <span className="rounded-lg bg-cyan-accent/15 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-cyan-accent ring-1 ring-cyan-accent/30">
+              Premium Analytics
+            </span>
+            <span className="hidden text-[11px] text-ink-muted sm:inline">
+              x402 · pay-per-call on Injective
+            </span>
+          </div>
+          {address && (
+            <span className="pill bg-cyan-accent/15 text-[10px] text-cyan-accent">
+              {shortAddr(address)}
+            </span>
+          )}
+        </div>
       </div>
+
+      <div className="mx-auto max-w-7xl space-y-6 px-4 pb-8 pt-6">
+        <div>
+          <h1 className="font-display text-3xl font-bold">Premium Analytics</h1>
+          <p className="mt-1 text-ink-muted">
+            AI-powered match analysis delivered via x402 payments on Injective.
+          </p>
+        </div>
 
       {/* Fixture selector — collapsible */}
       <Card className={`transition-all duration-300 ${panelOpen ? "" : ""}`}>
@@ -936,6 +961,7 @@ export default function X402Page() {
           </div>
         </Card>
       )}
+      </div>
 
       {/* Payment success modal */}
       <AnimatePresence>

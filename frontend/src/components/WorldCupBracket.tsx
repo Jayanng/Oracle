@@ -97,7 +97,7 @@ function GroupCard({ group }: { group: GroupData }) {
         <span className="flex h-5 w-5 items-center justify-center rounded bg-[#4E46FF] text-[10px] font-bold text-black">
           {group.label}
         </span>
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-[#64748B]">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-[#94A3B8]">
           Group {group.label}
         </span>
       </div>
@@ -267,7 +267,7 @@ export default function WorldCupBracket() {
           <h2 className="mt-3 font-display text-2xl font-bold text-white sm:text-3xl">
             Tournament Bracket
           </h2>
-          <p className="mt-2 text-sm text-[#64748B]">
+          <p className="mt-2 text-sm text-[#94A3B8]">
             48 teams · 12 groups · Road to the Final
           </p>
         </div>
@@ -310,7 +310,7 @@ export default function WorldCupBracket() {
                 <div className="text-xs font-bold tracking-wider text-[#4E46FF]">
                   FINAL
                 </div>
-                <div className="mt-1 flex gap-3 text-[10px] text-[#64748B]">
+                <div className="mt-1 flex gap-3 text-[10px] text-[#94A3B8]">
                   <span>SF1 winner</span>
                   <span className="text-[#1E293B]">vs</span>
                   <span>SF2 winner</span>

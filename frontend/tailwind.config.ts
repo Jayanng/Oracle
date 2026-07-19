@@ -13,7 +13,7 @@ const config: Config = {
           DEFAULT: "#0b0d12",
           card: "#141821",
           border: "#1f2430",
-          muted: "#8b93a7",
+          muted: "#a7b0c4",
         },
         cyan: {
           accent: "#4E46FF",

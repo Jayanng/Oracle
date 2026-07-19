@@ -72,7 +72,10 @@ export function Nav() {
 
   async function handleConnect() {
     try {
-      const connector = connectors[0];
+      const connector =
+        connectors.find((c) => /metamask/i.test(c.name)) ??
+        connectors.find((c) => c.type === "injected") ??
+        connectors[0];
       if (!connector) {
         toast.error("No wallet found. Install MetaMask or an EVM wallet.");
         return;
@@ -255,11 +258,18 @@ export function Nav() {
             </div>
           ) : (
             <button
-              className="font-mono rounded-lg bg-gradient-to-r from-[var(--pitch)] to-[#5ae89a] px-5 py-2 text-[11px] font-bold uppercase tracking-[0.12em] text-[var(--bg)] shadow-[0_0_16px_rgba(51,209,122,0.25)] transition-all duration-200 hover:-translate-y-[1px] hover:shadow-[0_0_24px_rgba(51,209,122,0.4)]"
+              className="flex items-center gap-2 rounded-lg bg-[#4E46FF] px-5 py-2 font-mono text-[11px] font-bold uppercase tracking-[0.12em] text-white transition-colors duration-200 hover:bg-[#3f38e0] disabled:cursor-not-allowed disabled:opacity-70"
               disabled={isPending}
               onClick={handleConnect}
             >
-              {isPending ? "Connecting…" : "Connect Wallet"}
+              {isPending ? (
+                <>
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white/90" />
+                  Connecting
+                </>
+              ) : (
+                "Connect Wallet"
+              )}
             </button>
           )}
 

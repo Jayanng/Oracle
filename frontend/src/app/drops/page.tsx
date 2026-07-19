@@ -586,53 +586,78 @@ export default function DropsPage() {
   ];
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6 px-4 py-8">
-      <div>
-        <h1 className="font-display text-3xl font-bold">Rewards & Treasury</h1>
-        <p className="mt-1 text-ink-muted">
-          Buy premium stats via the Agent chat → get whitelisted for the match's drop →
-          claim USDC on Injective or any chain via CCTP. Funded by oracle x402 revenue.
-        </p>
-      </div>
+    <div className="relative">
+      <div
+        className="pointer-events-none fixed inset-0 bg-cover bg-center bg-no-repeat opacity-10"
+        style={{ backgroundImage: "url('/field.png')" }}
+      />
 
-      {/* Wallet info bar */}
-      {address && (
-        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-ink-border bg-ink-card/50 px-4 py-3">
-          <div className="flex items-center gap-2 text-sm">
-            <span className="text-ink-muted">Balance:</span>
-            <span className="font-mono font-semibold text-cyan-accent">
-              {usdcBal != null ? (Number(usdcBal) / 1e6).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"} USDC
-            </span>
+      {/* Sticky top bar — matches dashboard shell */}
+      <div className="sticky top-0 z-30 border-b border-[#1E293B] bg-[#0B0F19]/95 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-7xl items-center justify-between overflow-x-auto px-4 py-3">
+          <div className="flex gap-2">
+            {TABS.map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setTab(t.key)}
+                className={`shrink-0 rounded-lg px-4 py-1.5 text-[11px] font-bold uppercase tracking-wider transition-all duration-200 ${
+                  tab === t.key
+                    ? "bg-cyan-accent/20 text-cyan-accent ring-1 ring-cyan-accent/30"
+                    : "text-ink-muted hover:text-white"
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
           </div>
-          <a
-            href="https://faucet.circle.com/"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-400 transition hover:bg-amber-500/20"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-droplets"><path d="M7 16.3c2.2 0 4-1.83 4-4.05 0-1.16-.57-2.26-1.71-3.19S7.29 6.75 7 5.3c-.29 1.45-1.14 2.84-2.29 3.76S3 11.1 3 12.25c0 2.22 1.8 4.05 4 4.05z"/><path d="M12.56 6.6A10.97 10.97 0 0 0 14 3.02c.5 2.5 2 4.9 4 6.5s3 3.5 3 5.5a6.98 6.98 0 0 1-11.91 4.97"/></svg>
-            Need USDC? Get testnet USDC from Circle faucet
-            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-          </a>
+          {address && (
+            <div className="hidden shrink-0 items-center gap-2 pl-4 text-xs sm:flex">
+              <span className="text-ink-muted">Balance</span>
+              <span className="font-mono font-semibold text-cyan-accent">
+                {usdcBal != null
+                  ? (Number(usdcBal) / 1e6).toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })
+                  : "—"}{" "}
+                USDC
+              </span>
+            </div>
+          )}
         </div>
-      )}
-
-      {/* Tab bar */}
-      <div className="flex gap-2 border-b border-ink-border pb-2">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`rounded-lg px-4 py-2 text-[11px] font-bold uppercase tracking-wider transition ${
-              tab === t.key
-                ? "bg-cyan-accent/20 text-cyan-accent ring-1 ring-cyan-accent/30"
-                : "text-ink-muted hover:text-white"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
       </div>
+
+      <div className="mx-auto max-w-7xl space-y-6 px-4 pb-8 pt-6">
+        <div>
+          <h1 className="font-display text-3xl font-bold">Rewards & Treasury</h1>
+          <p className="mt-1 text-ink-muted">
+            Buy premium stats via the Agent chat → get whitelisted for the
+            match&apos;s drop → claim USDC on Injective or any chain via CCTP.
+            Funded by oracle x402 revenue.
+          </p>
+        </div>
+
+        {/* Wallet info bar */}
+        {address && (
+          <div className="flex flex-wrap items-center gap-3 rounded-xl border border-ink-border bg-ink-card/50 px-4 py-3">
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-ink-muted">Balance:</span>
+              <span className="font-mono font-semibold text-cyan-accent">
+                {usdcBal != null ? (Number(usdcBal) / 1e6).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"} USDC
+              </span>
+            </div>
+            <a
+              href="https://faucet.circle.com/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-400 transition hover:bg-amber-500/20"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-droplets"><path d="M7 16.3c2.2 0 4-1.83 4-4.05 0-1.16-.57-2.26-1.71-3.19S7.29 6.75 7 5.3c-.29 1.45-1.14 2.84-2.29 3.76S3 11.1 3 12.25c0 2.22 1.8 4.05 4 4.05z"/><path d="M12.56 6.6A10.97 10.97 0 0 0 14 3.02c.5 2.5 2 4.9 4 6.5s3 3.5 3 5.5a6.98 6.98 0 0 1-11.91 4.97"/></svg>
+              Need USDC? Get testnet USDC from Circle faucet
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            </a>
+          </div>
+        )}
 
       {/* Tab 1: Active Drops */}
       {tab === "drops" && (
@@ -871,6 +896,7 @@ export default function DropsPage() {
           )}
         </div>
       )}
+      </div>
 
       {/* Transaction processing modal */}
       <TxModal
