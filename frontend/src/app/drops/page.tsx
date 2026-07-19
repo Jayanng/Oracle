@@ -124,7 +124,7 @@ export default function DropsPage() {
       });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || "Whitelist failed");
-      toast.success(`Access granted for Drop #${dropId}!`);
+      toast.success(`Access granted for Drop #${dropId}`);
       setEligibilityMap((m) => ({ ...m, [dropId]: true }));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not request access");
@@ -1029,7 +1029,7 @@ function DropCard({
           </button>
         )}
         {alreadyClaimed && (
-          <span className="text-emerald-400 text-xs">✅ Claimed</span>
+          <span className="text-emerald-400 text-xs">Claimed</span>
         )}
         {!eligible && active && (
           <button

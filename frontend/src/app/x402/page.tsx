@@ -822,10 +822,10 @@ export default function X402Page() {
                       }`}
                     >
                       {stats.prediction.confidence === "high"
-                        ? "⭐ High"
+                        ? "High"
                         : stats.prediction.confidence === "medium"
-                          ? "⚡ Medium"
-                          : "🤝 Low"}
+                          ? "Medium"
+                          : "Low"}
                     </span>
                     <span className="font-display text-lg font-semibold">
                       {stats.prediction.winner}
@@ -904,7 +904,7 @@ export default function X402Page() {
                         rel="noreferrer"
                         className="font-mono text-xs text-cyan-accent hover:underline"
                       >
-                        {shortAddr(stats._x402?.transaction || "")} ↗
+                        {shortAddr(stats._x402?.transaction || "")}
                       </a>
                     }
                   />
@@ -932,7 +932,7 @@ export default function X402Page() {
                     className="btn-primary mt-2 w-full text-sm"
                     onClick={() => router.push("/drops")}
                   >
-                    Claim your reward →
+                    Claim your reward
                   </button>
                 </div>
               )}
@@ -1010,7 +1010,7 @@ export default function X402Page() {
                       rel="noreferrer"
                       className="font-mono text-xs text-cyan-accent hover:underline"
                     >
-                      {shortAddr(successModal.txHash)} ↗
+                      {shortAddr(successModal.txHash)}
                     </a>
                   </div>
                 )}
@@ -1024,7 +1024,7 @@ export default function X402Page() {
                     }`}
                   >
                     {successModal.whitelisted
-                      ? "Whitelisted ✓"
+                      ? "Whitelisted"
                       : "Whitelist pending"}
                   </span>
                 </div>
@@ -1041,7 +1041,7 @@ export default function X402Page() {
                   className="btn-primary flex-1 text-sm"
                   onClick={() => router.push("/drops")}
                 >
-                  Claim reward →
+                  Claim reward
                 </button>
               </div>
             </motion.div>
