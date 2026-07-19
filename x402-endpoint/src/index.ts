@@ -34,7 +34,22 @@ dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 dotenv.config();
 
 const app = express();
-app.use(cors());
+// Expose x402 protocol headers so browser clients (fetch) can read the
+// payment challenge and settlement receipt across origins.
+app.use(
+  cors({
+    exposedHeaders: [
+      "PAYMENT-REQUIRED",
+      "PAYMENT-RESPONSE",
+      "X-PAYMENT-RESPONSE",
+    ],
+    allowedHeaders: [
+      "Content-Type",
+      "PAYMENT-SIGNATURE",
+      "X-PAYMENT",
+    ],
+  })
+);
 
 const CHAIN_ID = Number(process.env.INJ_EVM_CHAIN_ID || "1439");
 const NETWORK =

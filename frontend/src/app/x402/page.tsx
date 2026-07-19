@@ -2,11 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAccount } from "wagmi";
+import { useAccount, useWalletClient, useConfig } from "wagmi";
 import { motion, AnimatePresence } from "framer-motion";
 import { fetchFixtures, statusLabel, type PublicFixture } from "@/lib/fixtures";
 import { explorerTx } from "@/lib/chain";
 import { shortAddr } from "@/lib/utils";
+import { USDC_ADDRESS } from "@/lib/contracts";
+import { ensureInjectiveChain } from "@/lib/ensureInjective";
+import { payPremiumStats } from "@/lib/x402";
+import { toast } from "sonner";
 import { ChevronDown, Search, Check, X } from "lucide-react";
 
 type PremiumStats = {
@@ -92,7 +96,9 @@ function StatRow({ label, value }: { label: string; value: React.ReactNode }) {
 
 export default function X402Page() {
   const router = useRouter();
-  const { isConnected } = useAccount();
+  const { isConnected, address } = useAccount();
+  const { data: walletClient } = useWalletClient();
+  const config = useConfig();
   useEffect(() => {
     if (!isConnected) router.replace("/");
   }, [isConnected, router]);
@@ -105,6 +111,14 @@ export default function X402Page() {
   const [error, setError] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [whitelisted, setWhitelisted] = useState(false);
+  const [successModal, setSuccessModal] = useState<{
+    amountUsdc: string;
+    txHash?: string;
+    explorerUrl?: string;
+    matchLabel: string;
+    whitelisted: boolean;
+  } | null>(null);
 
   useEffect(() => {
     fetchFixtures().then((list) => {
@@ -125,6 +139,7 @@ export default function X402Page() {
     setStats(null);
     setStatus("idle");
     setError(null);
+    setWhitelisted(false);
   }, [selectedKey, fixtures]);
 
   // Stage grouping for the picker
@@ -190,34 +205,95 @@ export default function X402Page() {
 
   const doFetchPremium = useCallback(async () => {
     if (!selected) return;
+    if (!walletClient || !address) {
+      setError("Connect your wallet to pay for premium stats.");
+      setStatus("error");
+      return;
+    }
     setStatus("loading");
     setError(null);
     setStats(null);
+    setWhitelisted(false);
     try {
-      const r = await fetch("/api/x402", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ matchId: selected.id, label: selected.label }),
-      });
-      const data = await r.json();
-      if (data.error) {
-        setError(data.error);
-        setStatus("error");
-        return;
-      }
-      const result = data.result || data;
-      if (result._error) {
-        setError(result.message || "x402 payment failed");
-        setStatus("error");
-        return;
-      }
-      setStats(result as PremiumStats);
+      // Ensure the wallet is on Injective EVM before signing the payment.
+      await ensureInjectiveChain(config);
+
+      // The USER's wallet pays the x402 paywall via EIP-3009.
+      const { data, receipt } = await payPremiumStats(
+        walletClient,
+        address,
+        selected.id,
+        USDC_ADDRESS as `0x${string}`
+      );
+
+      const result: PremiumStats = {
+        ...(data as PremiumStats),
+        _paid: true,
+        _protocol: "x402",
+        _x402: {
+          paid: receipt?.success ?? true,
+          protocol: "x402",
+          network: receipt?.network,
+          transaction: receipt?.transaction,
+          onChain: !!receipt?.transaction,
+          explorerTx: receipt?.transaction
+            ? explorerTx(receipt.transaction)
+            : undefined,
+        },
+      };
+      setStats(result);
       setStatus("success");
+
+      // Amount charged for premium stats (0.10 USDC = 100000 in 6dp).
+      const amountUsdc = "0.10";
+      toast.success("Payment successful — premium analytics unlocked");
+
+      // Auto-whitelist the connected payer for this match's drop, using the
+      // exact wallet that just paid via x402 (never a fixed address).
+      let didWhitelist = false;
+      try {
+        const wl = await fetch("/api/whitelist", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ matchId: selected.id, address, wallet: address }),
+        });
+        const wlData = await wl.json().catch(() => ({}));
+        if (wl.ok && !wlData.error) {
+          didWhitelist = true;
+          setWhitelisted(true);
+          toast.success(
+            wlData.dropId != null
+              ? `Whitelisted for Drop #${wlData.dropId} — go claim your reward`
+              : "You're whitelisted for this match's fan drop"
+          );
+        } else {
+          const reason =
+            wlData.error || `whitelist failed (HTTP ${wl.status})`;
+          console.warn("[x402] auto-whitelist failed:", reason);
+          toast.error(`Auto-whitelist failed: ${reason}`);
+        }
+      } catch (e) {
+        const reason = e instanceof Error ? e.message : "network error";
+        console.warn("[x402] auto-whitelist error:", reason);
+        toast.error(`Auto-whitelist failed: ${reason}`);
+      }
+
+      setSuccessModal({
+        amountUsdc,
+        txHash: receipt?.transaction,
+        explorerUrl: receipt?.transaction
+          ? explorerTx(receipt.transaction)
+          : undefined,
+        matchLabel: selected.label,
+        whitelisted: didWhitelist,
+      });
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Request failed");
+      const msg = e instanceof Error ? e.message : "Payment failed";
+      setError(msg);
       setStatus("error");
+      toast.error(msg);
     }
-  }, [selected]);
+  }, [selected, walletClient, address, config]);
 
   return (
     <div className="mx-auto max-w-7xl space-y-6 px-4 py-8">
@@ -822,6 +898,19 @@ export default function X402Page() {
                   />
                 )}
               </div>
+              {whitelisted && (
+                <div className="mt-4 rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-3">
+                  <p className="text-sm font-medium text-emerald-300">
+                    You&apos;re whitelisted for this match&apos;s fan drop.
+                  </p>
+                  <button
+                    className="btn-primary mt-2 w-full text-sm"
+                    onClick={() => router.push("/drops")}
+                  >
+                    Claim your reward →
+                  </button>
+                </div>
+              )}
             </Card>
           </motion.div>
         )}
@@ -840,12 +929,99 @@ export default function X402Page() {
               to unlock AI-powered insights via x402.
             </p>
             <p className="text-xs text-ink-muted">
-              The agent pays USDC on Injective to fetch live analytics — xG,
-              possession, form, H2H, and match prediction.
+              You pay USDC on Injective via x402 to unlock live analytics — xG,
+              possession, form, H2H, and match prediction — and get auto-whitelisted
+              for this match&apos;s fan drop.
             </p>
           </div>
         </Card>
       )}
+
+      {/* Payment success modal */}
+      <AnimatePresence>
+        {successModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+            onClick={() => setSuccessModal(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.94, y: 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.94, y: 12 }}
+              className="w-full max-w-md rounded-2xl border border-emerald-500/25 bg-ink-card p-6"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex flex-col items-center gap-3 text-center">
+                <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/15">
+                  <Check className="h-7 w-7 text-emerald-400" />
+                </div>
+                <h3 className="font-display text-xl font-bold text-white">
+                  Payment Successful
+                </h3>
+                <p className="text-sm text-ink-muted">
+                  You paid{" "}
+                  <span className="font-semibold text-white">
+                    {successModal.amountUsdc} USDC
+                  </span>{" "}
+                  via x402 for premium analytics on{" "}
+                  <span className="font-semibold text-white">
+                    {successModal.matchLabel}
+                  </span>
+                  .
+                </p>
+              </div>
+
+              <div className="mt-5 space-y-2">
+                {successModal.txHash && (
+                  <div className="flex items-center justify-between rounded-lg border border-ink-border/60 bg-ink px-3 py-2">
+                    <span className="text-xs text-ink-muted">Settlement tx</span>
+                    <a
+                      href={successModal.explorerUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="font-mono text-xs text-cyan-accent hover:underline"
+                    >
+                      {shortAddr(successModal.txHash)} ↗
+                    </a>
+                  </div>
+                )}
+                <div className="flex items-center justify-between rounded-lg border border-ink-border/60 bg-ink px-3 py-2">
+                  <span className="text-xs text-ink-muted">Fan drop</span>
+                  <span
+                    className={`text-xs font-medium ${
+                      successModal.whitelisted
+                        ? "text-emerald-400"
+                        : "text-amber-400"
+                    }`}
+                  >
+                    {successModal.whitelisted
+                      ? "Whitelisted ✓"
+                      : "Whitelist pending"}
+                  </span>
+                </div>
+              </div>
+
+              <div className="mt-5 flex gap-2">
+                <button
+                  className="btn-ghost flex-1 text-sm"
+                  onClick={() => setSuccessModal(null)}
+                >
+                  View stats
+                </button>
+                <button
+                  className="btn-primary flex-1 text-sm"
+                  onClick={() => router.push("/drops")}
+                >
+                  Claim reward →
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

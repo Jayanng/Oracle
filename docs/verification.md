@@ -95,3 +95,53 @@ express / cors / axios / zod / dotenv / pino / p-retry
 3. Feeder simulator mode by default.
 4. `settleWithOutcome` admin path on CupRewards + JSON `settle()`.
 5. CCTP UI with simulator toggle for flaky attestation.
+
+---
+
+# End-to-end demo verification (fan-pays flow)
+
+**Live testnet (Injective EVM 1439) contracts:**
+
+| Contract | Address |
+|----------|---------|
+| CupEventOracle | `0xbfB37D11a830f521C9D9804cc0E463B6c8Ee8Bf9` |
+| OracleTreasury | `0xac4Bf838417AbC5BB6e3721c17A9b9B48F7de211` |
+| FanDrops | `0x27B66425B6eD1c28e26FF2D962C9A1758D904Deb` |
+| USDC (Circle testnet) | `0x0C382e685bbeeFE5d3d9C29e29E341fEE8E84C5d` |
+| Agent wallet | `0x3Ff34877B1CB3eBf91Ff46C6EFbD11565D466004` (funded ~31.9 USDC + ~2 INJ) |
+
+**Live demo drops:** #0 (match 103, active) and #1 (match 99, agent auto-created,
+active) — both eligible for demo wallet `0x0185dc75043D08324d65181F31CA7B49972331B3`.
+
+### Runbook
+
+1. Start stack: `dev:feeder` (:4030), `dev:agent` (:4020), `dev:x402` (:4021),
+   `dev:web` (:3000).
+2. **Fan pays x402** — connect wallet on `/x402`, buy premium stats. The fan's
+   own wallet signs an EIP-3009 `TransferWithAuthorization`; the facilitator
+   settles on-chain into `OracleTreasury`. ✅ Success modal shows amount + a
+   settlement-tx explorer link.
+3. **Auto-whitelist** — the page POSTs `{ matchId, address }` to `/api/whitelist`.
+   Agent resolves the drop (auto-creating one if the match has none) and
+   whitelists the payer. ✅ Modal shows "Whitelisted ✓". Verified: match 99 →
+   Drop #1 auto-created + whitelisted.
+4. **Claim** — open `/drops`; the just-whitelisted drop appears (reads use a
+   dedicated Injective client so it shows even if the wallet is on another
+   chain). Claim same-chain **or** cross-chain via CCTP.
+5. **CCTP mint** — burn on Injective → poll Circle Iris → `receiveMessage` on the
+   destination chain. Pay destination gas in native token (ETH/AVAX):
+   Sepolia ~0.00015 ETH (buffer 0.01), Base ~0.000001 ETH, Arbitrum ~0.000003
+   ETH, Fuji ~0 AVAX (buffer 0.05).
+
+### Fixes validated in this pass
+
+- Browser EIP-3009 payer (`frontend/src/lib/x402.ts`) matches
+  `@injectivelabs/x402` `createPayment` wire format (domain `name:"USDC"`,
+  `version:"2"`; headers `PAYMENT-SIGNATURE` + `X-PAYMENT`).
+- x402 endpoint CORS exposes `PAYMENT-REQUIRED`/`PAYMENT-RESPONSE` so the browser
+  can read the challenge + settlement receipt.
+- Dead `rpc.sepolia.org` (404) replaced with
+  `https://ethereum-sepolia-rpc.publicnode.com` (`NEXT_PUBLIC_SEPOLIA_RPC`,
+  default baked into `wagmi.ts` + `CHAIN_CONFIG`).
+- `/drops` reads via dedicated Injective client and always shows eligible/claimed
+  drops (even FT matches).

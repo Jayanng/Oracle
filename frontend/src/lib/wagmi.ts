@@ -7,7 +7,7 @@ export const INJECTIVE_EVM_CHAIN_ID = Number(
   process.env.NEXT_PUBLIC_INJ_EVM_CHAIN_ID || "1439"
 );
 
-const injRpc =
+export const injRpc =
   process.env.NEXT_PUBLIC_INJ_EVM_RPC ||
   "https://k8s.testnet.json-rpc.injective.network";
 
@@ -24,12 +24,17 @@ export const injectiveEvmTestnet = {
   testnet: true,
 } as const satisfies Chain;
 
+/** Sepolia RPC — the old rpc.sepolia.org now 404s; use a reliable public node. */
+export const sepoliaRpc =
+  process.env.NEXT_PUBLIC_SEPOLIA_RPC ||
+  "https://ethereum-sepolia-rpc.publicnode.com";
+
 /** Sepolia testnet — CCTP destination for cross-chain claims. */
 export const sepolia = {
   id: 11_155_111,
   name: "Ethereum Sepolia",
   nativeCurrency: { name: "Sepolia Ether", symbol: "ETH", decimals: 18 },
-  rpcUrls: { default: { http: ["https://rpc.sepolia.org"] }, public: { http: ["https://rpc.sepolia.org"] } },
+  rpcUrls: { default: { http: [sepoliaRpc] }, public: { http: [sepoliaRpc] } },
   blockExplorers: { default: { name: "Etherscan", url: "https://sepolia.etherscan.io" } },
   testnet: true,
 } as const satisfies Chain;
@@ -39,7 +44,7 @@ export const config = createConfig({
   connectors: [injected({ shimDisconnect: true })],
   transports: {
     [injectiveEvmTestnet.id]: http(injRpc),
-    [sepolia.id]: http("https://rpc.sepolia.org"),
+    [sepolia.id]: http(sepoliaRpc),
   },
   multiInjectedProviderDiscovery: false,
   ssr: true,

@@ -30,7 +30,7 @@ import {
 import { shortAddr } from "@/lib/utils";
 import { ensureInjectiveChain, isInjectiveChain } from "@/lib/ensureInjective";
 import { TxModal, type TxStep } from "@/components/TxModal";
-import { INJECTIVE_EVM_CHAIN_ID } from "@/lib/wagmi";
+import { INJECTIVE_EVM_CHAIN_ID, injRpc, injectiveEvmTestnet } from "@/lib/wagmi";
 import {
   fetchFixtures,
   type PublicFixture,
@@ -49,6 +49,18 @@ export default function DropsPage() {
   const config = useConfig();
   const chainId = useChainId();
   const pub = usePublicClient();
+
+  // Dedicated Injective read client — reads drops/eligibility from Injective EVM
+  // regardless of which chain the user's wallet is currently on (MetaMask may be
+  // on Ethereum/Sepolia). Without this, contract reads silently return nothing.
+  const injPub = useMemo(
+    () =>
+      createPublicClient({
+        chain: injectiveEvmTestnet,
+        transport: http(injRpc),
+      }),
+    []
+  );
 
   const [tab, setTab] = useState<Tab>("drops");
   const [fixtures, setFixtures] = useState<PublicFixture[]>([]);
@@ -158,9 +170,9 @@ export default function DropsPage() {
       });
       updateLastTxStep({ txHash: mintHash, domain: data.domain });
 
-      const destRpc = data.chainId === 11_155_111
-        ? "https://rpc.sepolia.org"
-        : "https://rpc.sepolia.org";
+      const destRpc =
+        CHAIN_CONFIG[data.domain]?.rpc ||
+        "https://ethereum-sepolia-rpc.publicnode.com";
       try {
         const destPub = createPublicClient({ transport: http(destRpc) });
         const mr = await destPub.waitForTransactionReceipt({ hash: mintHash, timeout: 120_000 });
@@ -234,10 +246,10 @@ export default function DropsPage() {
 
   // Load active drop IDs by scanning from 0 to nextDropId
   useEffect(() => {
-    if (!hasDrops || !pub) return;
+    if (!hasDrops) return;
     const load = async () => {
       try {
-        const nextId = (await pub.readContract({
+        const nextId = (await injPub.readContract({
           address: DROPS_ADDRESS,
           abi: FAN_DROPS_ABI,
           functionName: "nextDropId",
@@ -246,7 +258,7 @@ export default function DropsPage() {
         const active: number[] = [];
         const matchIds: Record<number, number> = {};
         for (let i = 0; i < total; i++) {
-          const dropRaw = (await pub.readContract({
+          const dropRaw = (await injPub.readContract({
             address: DROPS_ADDRESS,
             abi: FAN_DROPS_ABI,
             functionName: "drops",
@@ -266,24 +278,24 @@ export default function DropsPage() {
     load();
     const t = setInterval(load, 20_000);
     return () => clearInterval(t);
-  }, [hasDrops, pub, refreshKey]);
+  }, [hasDrops, injPub, refreshKey]);
 
   // Check eligibility for each active drop
   useEffect(() => {
-    if (!hasDrops || !address || !pub || activeDropIds.length === 0) return;
+    if (!hasDrops || !address || activeDropIds.length === 0) return;
     const check = async () => {
       const eligMap: Record<number, boolean> = {};
       const claimMap: Record<number, boolean> = {};
       for (const id of activeDropIds) {
         try {
           const [e, c] = await Promise.all([
-            pub.readContract({
+            injPub.readContract({
               address: DROPS_ADDRESS,
               abi: FAN_DROPS_ABI,
               functionName: "eligible",
               args: [BigInt(id), address],
             }) as Promise<boolean>,
-            pub.readContract({
+            injPub.readContract({
               address: DROPS_ADDRESS,
               abi: FAN_DROPS_ABI,
               functionName: "claimed",
@@ -300,9 +312,11 @@ export default function DropsPage() {
     check();
     const t = setInterval(check, 15_000);
     return () => clearInterval(t);
-  }, [hasDrops, address, pub, activeDropIds]);
+  }, [hasDrops, address, injPub, activeDropIds]);
 
-  // Only show drops for upcoming/LIVE fixtures, deduped by matchId (keep newest dropId)
+  // Show drops for upcoming/LIVE fixtures for discovery, PLUS any drop the
+  // connected wallet is eligible for or has claimed (even if the match is FT),
+  // so the pay → whitelist → claim flow always surfaces the right drop.
   const visibleDropIds = useMemo(() => {
     const showableStatuses = new Set(["NS", "LIVE", "HT", "1H", "2H", "ET", "P"]);
     const byMatch = new Map<number, number>();
@@ -310,13 +324,15 @@ export default function DropsPage() {
       const matchId = dropMatchIds[dropId];
       if (matchId === undefined) continue;
       const fixture = fixtures.find((f) => f.id === matchId);
-      // If fixtures haven't loaded yet, keep the drop; otherwise require an upcoming/LIVE status
-      if (fixture && !showableStatuses.has(fixture.status)) continue;
+      const isMine = eligibilityMap[dropId] || claimedMap[dropId];
+      // Always keep drops the user is involved in. Otherwise require an
+      // upcoming/LIVE status (when fixtures have loaded) for discovery.
+      if (!isMine && fixture && !showableStatuses.has(fixture.status)) continue;
       const existing = byMatch.get(matchId);
       if (existing === undefined || dropId > existing) byMatch.set(matchId, dropId);
     }
     return Array.from(byMatch.values()).sort((a, b) => a - b);
-  }, [activeDropIds, dropMatchIds, fixtures]);
+  }, [activeDropIds, dropMatchIds, fixtures, eligibilityMap, claimedMap]);
 
   // Actions
   async function handleClaim(dropId: number) {

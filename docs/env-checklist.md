@@ -49,8 +49,22 @@ If those are missing, Dashboard/Explorer show empty chain data.
 | `X402_RECEIVER_ADDRESS` | Agent or treasury address |
 | `OPENAI_API_KEY` | Optional (`sk-…`) for LLM; leave empty for deterministic chips |
 | `SPORTS_API_KEY` | Only if `FEEDER_MODE=live` |
+| `AUTO_DROP_AMOUNT_USDC` | Per-winner USDC when the agent auto-creates a drop on x402 purchase (default `0.10`) |
+| `AUTO_DROP_MAX_WINNERS` | Max winners for agent auto-created drops (default `20`) |
 
 Mirror all chain/contract fields into `frontend/.env.local` as `NEXT_PUBLIC_*`.
+
+### CCTP / cross-chain RPCs (frontend `.env.local`)
+
+| Variable | Fix to |
+|----------|--------|
+| `NEXT_PUBLIC_SEPOLIA_RPC` | `https://ethereum-sepolia-rpc.publicnode.com` — **`https://rpc.sepolia.org` is DEAD (404), do not use** |
+
+Per-destination RPCs for CCTP mint live in `frontend/src/lib/contracts.ts`
+(`CHAIN_CONFIG[domain].rpc`); Base/Arbitrum/Fuji default to publicnode RPCs.
+The CCTP **mint runs on the destination chain** and is paid in that chain's
+**native token** (ETH/AVAX, not INJ) — keep a small buffer: Sepolia ~0.01 ETH,
+Base/Arbitrum ~0.001 ETH, Fuji ~0.05 AVAX.
 
 ---
 
@@ -63,7 +77,9 @@ Mirror all chain/contract fields into `frontend/.env.local` as `NEXT_PUBLIC_*`.
 5. **Empty private keys** — feeder/agent write tools fail.
 6. **No FEEDER_ROLE** — deploy with `FEEDER_ADDRESS=0x…` or grant role after deploy.
 7. **x402 receiver empty** — set `X402_RECEIVER_ADDRESS` to a checksummed address.
-8. **Wallet on wrong chain** — MetaMask must use same chain id as `NEXT_PUBLIC_INJ_EVM_CHAIN_ID`.
+8. **Wallet on wrong chain** — MetaMask must use same chain id as `NEXT_PUBLIC_INJ_EVM_CHAIN_ID`. (The `/drops` reads use a dedicated Injective client so drops still load even if the wallet is on Sepolia, but **claim txs** need the right chain.)
+9. **Dead Sepolia RPC** — `rpc.sepolia.org` now 404s; set `NEXT_PUBLIC_SEPOLIA_RPC` to publicnode or CCTP mints hang.
+10. **No native gas on destination** — CCTP mint fails silently without ETH/AVAX on the destination chain (see CCTP RPC table above).
 
 ---
 

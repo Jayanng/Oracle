@@ -49,30 +49,34 @@ export const MESSAGE_TRANSMITTER_ABI = [
 /**
  * Testnet USDC and chain config for each CCTP destination domain.
  */
-export const CHAIN_CONFIG: Record<number, { chainId: number; usdc: string; explorer: string; label: string }> = {
+export const CHAIN_CONFIG: Record<number, { chainId: number; usdc: string; explorer: string; label: string; rpc: string }> = {
   0: {
     chainId: 11_155_111,
     usdc: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
     explorer: "https://sepolia.etherscan.io",
     label: "Sepolia",
+    rpc: "https://ethereum-sepolia-rpc.publicnode.com",
   },
   6: {
     chainId: 84532,
     usdc: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
     explorer: "https://sepolia.basescan.org",
     label: "Base Sepolia",
+    rpc: "https://base-sepolia-rpc.publicnode.com",
   },
   2: {
     chainId: 421614,
     usdc: "0x75faf114eafb1BDbe2F0316DF893fdE2A2E4f7C5",
     explorer: "https://sepolia.arbiscan.io",
     label: "Arbitrum Sepolia",
+    rpc: "https://arbitrum-sepolia-rpc.publicnode.com",
   },
   1: {
     chainId: 43113,
     usdc: "0x75aF114eafb1BDbe2F0316DF893fdE2A2E4f7C5",
     explorer: "https://testnet.snowtrace.io",
     label: "Avalanche Fuji",
+    rpc: "https://avalanche-fuji-c-chain-rpc.publicnode.com",
   },
 };
 

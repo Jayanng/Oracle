@@ -796,11 +796,40 @@ app.post("/x402-premium", async (req, res) => {
 
 app.post("/api/whitelist", async (req, res) => {
   try {
-    const { dropId, wallet } = req.body;
-    if (dropId === undefined || dropId === null || !wallet)
-      throw new Error("dropId and wallet required");
+    const wallet = req.body?.wallet || req.body?.address;
+    if (!wallet) throw new Error("wallet/address required");
+
+    let dropId = req.body?.dropId;
+    let created = false;
+    // Resolve dropId from matchId when only a match is given (x402 page flow).
+    if ((dropId === undefined || dropId === null) && req.body?.matchId != null) {
+      const matchId = Number(req.body.matchId);
+      dropId = await tools.resolveDropId(matchId);
+
+      // No drop for this match yet — auto-create a small sponsor-funded drop so
+      // the pay -> whitelist -> claim flow works for ANY match, then whitelist.
+      if (dropId === null || dropId === undefined) {
+        console.log(`[whitelist] no drop for match ${matchId}; auto-creating…`);
+        const drop = await tools.createDrop({
+          matchId,
+          eventType: "goal",
+          minuteFrom: 1,
+          minuteTo: 120,
+          perWinnerAmountUsdc: process.env.AUTO_DROP_AMOUNT_USDC || "0.10",
+          maxWinners: Number(process.env.AUTO_DROP_MAX_WINNERS || "20"),
+        });
+        dropId = drop.dropId;
+        created = true;
+        console.log(
+          `[whitelist] created Drop #${dropId} for match ${matchId} (${drop.totalFunded})`
+        );
+      }
+    }
+    if (dropId === undefined || dropId === null)
+      throw new Error("dropId or matchId required");
+
     const result = await tools.whitelistDrop({ dropId, wallets: [wallet] });
-    res.json(result);
+    res.json({ ...result, dropId, created });
   } catch (e) {
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }

@@ -20,6 +20,27 @@ CupEvent Oracle is a lightweight, reusable primitive for that shape of data, wit
 2. **Oracle Data Marketplace** — every premium query is metered via x402. Fees accumulate in an on-chain treasury.
 3. **Feeder Economy** — data feeders earn pro-rata share of treasury revenue, withdrawable same-chain or cross-chain via CCTP.
 
+### The end-to-end fan flow (browser, no human-in-the-loop friction)
+
+```
+Fan connects wallet
+   │
+   ▼  buys premium analytics on /x402
+Fan's OWN wallet pays 0.10 USDC via x402 (EIP-3009 signature, browser-signed)
+   │  facilitator submits on-chain, settles into OracleTreasury
+   ▼
+Success modal: amount paid + settlement tx + "Whitelisted ✓"
+   │  agent auto-resolves the match's drop (and auto-creates one if none exists)
+   ▼  fan is whitelisted for that match's Fan Drop
+Fan opens /drops → claims USDC
+   ├── same-chain on Injective, or
+   └── cross-chain via CCTP (Sepolia / Base / Arbitrum / Avalanche)
+```
+
+The **fan's wallet** pays x402 in the browser via a hand-rolled EIP-3009 payer
+(`frontend/src/lib/x402.ts`) that mirrors `@injectivelabs/x402`'s `createPayment`
+wire format exactly. The **agent** still self-pays for x402 in the chat flow.
+
 ## Architecture
 
 ```
@@ -39,14 +60,19 @@ CupEvent Oracle is a lightweight, reusable primitive for that shape of data, wit
           ┌─────────────────────────┼─────────────────────────┐
           ▼                         ▼                         ▼
      Next.js UI                 MCP Agent              FanDrops.sol
-     (5 pages)              (LLM + 8 tools)          ├── sponsor drops
-                                                     ├── whitelist wallets
-                                                     ├── claim (same-chain)
-                                                     └── claimToChain (CCTP)
-          │                         │
-          ▼                         ▼
-   x402 /premium-stats        x402 /historical-events
-   x402 /health               x402 /webhooks
+     (6 pages)              (LLM + 9 tools)          ├── sponsor drops
+          │                    │    │                ├── whitelist wallets
+          │                    │    │                ├── claim (same-chain)
+          │                    │    │                └── claimToChain (CCTP)
+          │                    │    └── auto-create + auto-whitelist drop
+          │                    ▼         (on x402 purchase)
+          │             agent self-pays x402 (chat)
+          ▼
+   /x402 page: FAN's wallet pays x402 (EIP-3009, browser-signed)
+          │
+          ▼
+   x402 endpoint :4021  (@injectivelabs/x402 middleware, settle → treasury)
+   /premium-stats  /historical-events  /webhooks  /health
 ```
 
 See [docs/architecture.md](./docs/architecture.md) and [docs/verification.md](./docs/verification.md).
@@ -56,8 +82,8 @@ See [docs/architecture.md](./docs/architecture.md) and [docs/verification.md](./
 | Tech | Where |
 |------|-------|
 | **MCP Server** | `agent/src/server.ts` — 9 tools: `get_latest_event`, `list_events`, `get_premium_stats`, `create_drop`, `whitelist_drop`, `check_drop_eligibility`, `pay_drop`, `feeder_earnings`, `withdraw_feeder_earnings` |
-| **x402** | `x402-endpoint/` — 3 metered endpoints (`/premium-stats`, `/historical-events`, `/webhooks/subscribe`); on-chain settlement via `OracleTreasury.pullPayment`; agent retry loop in `agent/src/tools.ts` |
-| **CCTP** | `FanDrops.claimToChain`, `OracleTreasury.withdrawToChain`, `frontend/src/app/drops/**` — cross-chain USDC burns routed through our contracts, never called directly from the frontend |
+| **x402** | `x402-endpoint/` — 3 metered endpoints (`/premium-stats`, `/historical-events`, `/webhooks/subscribe`) via the official `@injectivelabs/x402` middleware (EIP-3009, `settlementPolicy: "before"`); on-chain settlement into `OracleTreasury`. **Two payers:** the agent self-pays in chat (`agent/src/tools.ts`), and the **fan's browser wallet** pays directly on `/x402` (`frontend/src/lib/x402.ts`). CORS exposes the `PAYMENT-REQUIRED` / `PAYMENT-RESPONSE` protocol headers so browser clients can read the challenge + settlement receipt. |
+| **CCTP** | `FanDrops.claimToChain`, `OracleTreasury.withdrawToChain`, `frontend/src/app/drops/**` — cross-chain USDC burns routed through our contracts (never called directly from the frontend), attestation polled via Circle Iris, mint (`receiveMessage`) submitted on the destination chain. Supports Sepolia, Base Sepolia, Arbitrum Sepolia, Avalanche Fuji. |
 | **Agent Skills** | Tool schemas + system prompt in `agent/src/chat.ts` (OpenAI tools + deterministic regex fallback + 4 capability categories) |
 
 ### Package verification
@@ -89,7 +115,8 @@ cup-event-oracle/
 2. **/dashboard** — Live match feed + on-chain event log
 3. **/agent** — CupAgent chat + tool/x402 action log
 4. **/explorer** — Event table + "use this oracle" snippets
-5. **/drops** — Active drops (claim), sponsor form, feeder earnings
+5. **/drops** — Active drops (claim same-chain or cross-chain via CCTP), sponsor form, feeder earnings
+6. **/x402** — Premium analytics store: the **fan's own wallet** pays 0.10 USDC via x402, gets a success modal (amount + settlement tx), and is auto-whitelisted for the match's Fan Drop
 
 ## Quickstart (~5 min)
 
@@ -134,6 +161,9 @@ Open http://localhost:3000 → connect wallet → **Dashboard** for live match f
 | `CCTP_TOKEN_MESSENGER` | `0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA` |
 | `FEEDER_MODE` | `simulator` (default) or `live` |
 | `GROQ_API_KEY` | LLM for agent chat (Groq preferred, OpenAI fallback) |
+| `NEXT_PUBLIC_SEPOLIA_RPC` | Sepolia RPC for CCTP mint (default `ethereum-sepolia-rpc.publicnode.com`; old `rpc.sepolia.org` is dead) |
+| `AUTO_DROP_AMOUNT_USDC` | Per-winner USDC for agent auto-created drops (default `0.10`) |
+| `AUTO_DROP_MAX_WINNERS` | Max winners for agent auto-created drops (default `20`) |
 
 ## Query the oracle from your dApp
 
@@ -155,6 +185,29 @@ const latest = await publicClient.readContract({
   args: [2026001n],
 });
 ```
+
+## Cross-chain claims (CCTP) & gas requirements
+
+Fans can claim drop rewards on Injective (same-chain) or bridge to another
+testnet via **Circle CCTP v2**. The flow is: burn on Injective → poll Circle
+Iris for the attestation → **mint (`receiveMessage`) on the destination chain**.
+
+The **mint runs on the destination chain**, so you pay gas there in that chain's
+**native token** — not INJ. `receiveMessage` costs ~120k–200k gas.
+
+| Destination | Gas token | Est. mint cost | Suggested balance | RPC (default) |
+|-------------|-----------|----------------|-------------------|---------------|
+| Ethereum Sepolia | ETH | ~0.00015 ETH | **0.01 ETH** (spikes) | `ethereum-sepolia-rpc.publicnode.com` |
+| Base Sepolia | ETH | ~0.000001 ETH | **0.001 ETH** | `base-sepolia-rpc.publicnode.com` |
+| Arbitrum Sepolia | ETH | ~0.000003 ETH | **0.001 ETH** | `arbitrum-sepolia-rpc.publicnode.com` |
+| Avalanche Fuji | AVAX | ~0 (near-zero) | **0.05 AVAX** | `avalanche-fuji-c-chain-rpc.publicnode.com` |
+
+- The **burn** step is on Injective — keep a little **INJ** for that.
+- For demos, **Base / Arbitrum Sepolia** are effectively free to mint on.
+- RPCs are configurable: `NEXT_PUBLIC_SEPOLIA_RPC` (and per-destination `rpc` in
+  `frontend/src/lib/contracts.ts` → `CHAIN_CONFIG`). The legacy
+  `rpc.sepolia.org` was retired (now 404s) and has been replaced with reliable
+  public nodes throughout.
 
 ## Deploy your own
 
@@ -201,9 +254,11 @@ const latest = await publicClient.readContract({
 
 **Why not Pyth/Chainlink?** — They optimise for financial price data. Events are discrete/categorical from unstructured sources. This primitive is complementary, not competitive, and agents consume it via MCP.
 
-**x402 in the demo** — Agent hits paywalled endpoint → HTTP 402 + requirements → signs EIP-712 Payment → retries → server verifies → premium stats returned. Zero human in the loop. Payments settle on-chain into the treasury.
+**x402 in the demo** — Two payer paths, both real EIP-3009 on-chain settlement into the treasury:
+- **Agent (chat):** hits the paywalled endpoint → HTTP 402 + requirements → signs → retries → premium stats returned. Zero human in the loop.
+- **Fan (browser, `/x402`):** the fan's own wallet signs an EIP-3009 `TransferWithAuthorization` for 0.10 USDC → the facilitator submits it → success modal shows the settlement tx → the fan is auto-whitelisted for the match's drop.
 
-**Fan drops** — Sponsors pre-fund USDC. Agent whitelists wallets. Oracle events trigger automated payouts. Fans claim free rewards to any supported chain via CCTP. No staking, no risk.
+**Fan drops** — Sponsors pre-fund USDC; oracle events trigger automated payouts. After paying for analytics, a fan is **auto-whitelisted** for that match's drop — and if no drop exists yet for the match, the agent **auto-creates a small sponsor-funded drop on the fly** (configurable via `AUTO_DROP_AMOUNT_USDC` / `AUTO_DROP_MAX_WINNERS`), then whitelists the fan. Fans claim free rewards same-chain or to any supported chain via CCTP. No staking, no risk.
 
 **Feeder economy** — Anyone can run a feeder and earn pro-rata share of x402 revenue. Withdraw same-chain or cross-chain via CCTP.
 
