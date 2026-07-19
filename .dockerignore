@@ -1,0 +1,10 @@
+node_modules
+.git
+.gitmodules
+contracts
+docs
+*.md
+.env
+.env.local
+.github
+.DS_Store

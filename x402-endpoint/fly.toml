@@ -1,0 +1,34 @@
+# fly.toml for the x402-endpoint (premium analytics paywall)
+app = "kickoff-x402"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  X402_MODE = "auto"
+  # FEEDER_URL = "https://kickoff-feeder.fly.dev"
+
+[[services]]
+  internal_port = 4021
+  protocol = "tcp"
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [services.concurrency]
+    type = "requests"
+    hard_limit = 50
+    soft_limit = 25
+
+  [[services.http_checks]]
+    interval = "15s"
+    timeout = "10s"
+    path = "/health"
+    method = "GET"
+    protocol = "http"

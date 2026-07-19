@@ -1,0 +1,34 @@
+# fly.toml for the CupAgent (MCP + chat)
+app = "kickoff-agent"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  # FEEDER_URL = "https://kickoff-feeder.fly.dev"
+  # X402_ENDPOINT_URL = "https://kickoff-x402.fly.dev"
+
+[[services]]
+  internal_port = 4020
+  protocol = "tcp"
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [services.concurrency]
+    type = "requests"
+    hard_limit = 50
+    soft_limit = 25
+
+  [[services.http_checks]]
+    interval = "15s"
+    timeout = "10s"
+    path = "/health"
+    method = "GET"
+    protocol = "http"

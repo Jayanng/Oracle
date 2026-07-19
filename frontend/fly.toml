@@ -1,0 +1,36 @@
+# fly.toml for the KICKOFF frontend (Next.js)
+app = "kickoff"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  # Backend service URLs — set these via `fly secrets set` after deploying each service
+  # FEEDER_URL = "https://kickoff-feeder.fly.dev"
+  # AGENT_URL = "https://kickoff-agent.fly.dev"
+  # X402_ENDPOINT_URL = "https://kickoff-x402.fly.dev"
+
+[[services]]
+  internal_port = 3000
+  protocol = "tcp"
+
+  [[services.ports]]
+    port = 80
+    handlers = ["http"]
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls", "http"]
+
+  [services.concurrency]
+    type = "requests"
+    hard_limit = 100
+    soft_limit = 50
+
+  [[services.http_checks]]
+    interval = "15s"
+    timeout = "10s"
+    path = "/"
+    method = "GET"
+    protocol = "http"
