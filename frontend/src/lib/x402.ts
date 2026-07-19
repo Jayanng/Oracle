@@ -105,7 +105,7 @@ export async function payPremiumStats(
   usdcVersion = "2",
   onStage?: (stage: X402Stage) => void
 ): Promise<X402PayResult> {
-  const url = `${X402_URL}/premium-stats?matchId=${matchId}`;
+  const url = `${X402_URL}?matchId=${matchId}`;
 
   // Step 1: hit the endpoint, expect 402
   onStage?.("challenge");
