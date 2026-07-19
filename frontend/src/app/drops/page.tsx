@@ -990,17 +990,47 @@ function DropCard({
   });
 
   const tuple = raw as readonly [bigint, string, number, number, bigint, number, number, bigint, string, boolean] | undefined;
+
+  const matchId = tuple ? Number(tuple[0]) : 0;
+  const eventType = tuple ? tuple[1] : "";
+  const minuteFrom = tuple ? tuple[2] : 0;
+  const minuteTo = tuple ? tuple[3] : 0;
+
+  // Read the match's oracle events to mirror the contract's _oracleMatches gate:
+  // the claim only succeeds once a matching event (eventType + minute window)
+  // has fired. Until then the Claim button stays disabled ("numb").
+  const { data: oracleEvents } = useReadContract({
+    address: ORACLE_ADDRESS || undefined,
+    abi: ORACLE_ABI,
+    functionName: "getEvents",
+    args: [BigInt(matchId)],
+    query: {
+      enabled: Boolean(ORACLE_ADDRESS) && Boolean(tuple),
+      refetchInterval: 15_000,
+    },
+  });
+
   if (!tuple) return null;
 
-  const matchId = Number(tuple[0]);
-  const eventType = tuple[1];
-  const minuteFrom = tuple[2];
-  const minuteTo = tuple[3];
   const perWinnerAmount = tuple[4];
   const maxWinners = tuple[5];
   const claimedCount = tuple[6];
   const sponsor = tuple[8];
   const active = tuple[9];
+
+  const evts =
+    (oracleEvents as
+      | readonly {
+          eventType: string;
+          minute: number;
+        }[]
+      | undefined) ?? [];
+  const triggerFired = evts.some(
+    (e) =>
+      e.eventType === eventType &&
+      Number(e.minute) >= minuteFrom &&
+      Number(e.minute) <= minuteTo
+  );
 
   const fixture = fixtures.find((f) => f.id === matchId);
   const label = fixture?.label || `Match #${matchId}`;
@@ -1045,9 +1075,18 @@ function DropCard({
       <div className="flex items-center justify-between text-xs">
         <span className="text-ink-muted">Sponsor: {shortAddr(sponsor)}</span>
         {eligible && !alreadyClaimed && active && (
-          <button className="btn-primary text-xs py-1 px-3" onClick={onClaim}>
-            Claim
-          </button>
+          triggerFired ? (
+            <button className="btn-primary text-xs py-1 px-3" onClick={onClaim}>
+              Claim
+            </button>
+          ) : (
+            <span
+              className="pill bg-ink-border/60 text-[11px] text-ink-muted"
+              title={`Claim unlocks once a "${eventType}" event fires between minute ${minuteFrom} and ${minuteTo === 0xffffffff ? "∞" : minuteTo}`}
+            >
+              Awaiting {eventType}
+            </span>
+          )
         )}
         {alreadyClaimed && (
           <span className="text-emerald-400 text-xs">Claimed</span>
