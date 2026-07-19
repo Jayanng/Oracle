@@ -20,3 +20,7 @@ frontend/out/
 frontend/.env.local
 *.tsbuildinfo
 .vercel
+
+# Local scratch docs (not for repo)
+UPDATE_PROMPT_*.md
+BUILD_GUIDE_*.md
