@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   useAccount,
-  useChainId,
   useConfig,
   usePublicClient,
   useReadContract,
@@ -47,7 +46,6 @@ export default function DropsPage() {
   }, [isConnected, router]);
 
   const config = useConfig();
-  const chainId = useChainId();
   const pub = usePublicClient();
 
   // Dedicated Injective read client — reads drops/eligibility from Injective EVM

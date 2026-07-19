@@ -206,6 +206,8 @@ export default function X402Page() {
       }
     }
     return groups;
+    // STAGES is a module-level constant (stable reference); no need to include it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fixtures, query, filteredFixtures]);
 
   const doFetchPremium = useCallback(async () => {
