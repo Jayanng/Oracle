@@ -15,7 +15,7 @@ import { toast } from "sonner";
 import { cn, shortAddr } from "@/lib/utils";
 import { ensureInjectiveChain, isInjectiveChain } from "@/lib/ensureInjective";
 import { INJECTIVE_EVM_CHAIN_ID } from "@/lib/wagmi";
-import { Menu, X, Trophy, ChevronDown } from "lucide-react";
+import { Menu, X, Trophy } from "lucide-react";
 
 const publicLinks: { href: string; label: string }[] = [];
 
@@ -36,29 +36,9 @@ export function Nav() {
   const { disconnect } = useDisconnect();
   const { switchChainAsync } = useSwitchChain();
   const [walletOpen, setWalletOpen] = useState(false);
-  const [pickerOpen, setPickerOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
-  const pickerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!pickerOpen) return;
-    function onDoc(e: MouseEvent) {
-      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
-        setPickerOpen(false);
-      }
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setPickerOpen(false);
-    }
-    document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [pickerOpen]);
 
   const onInjective = isInjectiveChain(chainId);
 
@@ -91,41 +71,25 @@ export function Nav() {
   const links = isConnected ? protectedLinks : publicLinks;
 
   async function handleConnect() {
-    setPickerOpen(true);
-  }
-
-  async function connectWith(connectorId: string) {
-    const connector = connectors.find((c) => c.id === connectorId);
-    if (!connector) {
-      toast.error("Wallet not found. Try installing it as a browser extension.");
-      return;
-    }
-    setPickerOpen(false);
     try {
-      await connectAsync({ connector, chainId: INJECTIVE_EVM_CHAIN_ID });
+      const connector =
+        connectors.find((c) => /metamask/i.test(c.name)) ??
+        connectors.find((c) => c.type === "injected") ??
+        connectors[0];
+      if (!connector) {
+        toast.error("No wallet found. Install MetaMask or an EVM wallet.");
+        return;
+      }
+      await connectAsync({
+        connector,
+        chainId: INJECTIVE_EVM_CHAIN_ID,
+      });
       await ensureInjectiveChain(config);
       toast.success(`Connected on Injective EVM (${INJECTIVE_EVM_CHAIN_ID})`);
       router.push("/dashboard");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Connect failed");
     }
-  }
-
-  /** Friendly label + emoji for known wallets; falls back to connector name. */
-  function walletMeta(c: (typeof connectors)[number]) {
-    const name = (c.name || c.id || "Wallet").toString();
-    const n = name.toLowerCase();
-    if (n.includes("metamask")) return { label: "MetaMask", icon: "🦊" };
-    if (n.includes("rabby")) return { label: "Rabby", icon: "🐰" };
-    if (n.includes("rainbow")) return { label: "Rainbow", icon: "🌈" };
-    if (n.includes("coinbase")) return { label: "Coinbase Wallet", icon: "🔵" };
-    if (n.includes("trust")) return { label: "Trust Wallet", icon: "🛡️" };
-    if (n.includes("okx")) return { label: "OKX Wallet", icon: "⭕" };
-    if (n.includes("ledger")) return { label: "Ledger", icon: "🔒" };
-    if (n.includes("injected") || n.includes("browser")) {
-      return { label: name, icon: "🔌" };
-    }
-    return { label: name, icon: "👛" };
   }
 
   async function handleSwitchToInjective() {
@@ -365,80 +329,6 @@ export function Nav() {
                 </div>
               )}
             </nav>
-          </div>
-        </>
-      )}
-
-      {/* Wallet picker modal */}
-      {pickerOpen && (
-        <>
-          <div
-            className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm"
-            onClick={() => setPickerOpen(false)}
-            aria-hidden
-          />
-          <div
-            ref={pickerRef}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Select a wallet"
-            className="fixed left-1/2 top-1/2 z-[70] w-[min(92vw,380px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl border border-[var(--card-border)] bg-[var(--bg-2)] p-5 shadow-2xl shadow-black/70"
-          >
-            <div className="mb-1 flex items-center justify-between">
-              <h3 className="font-display text-base font-bold text-white">
-                Connect a wallet
-              </h3>
-              <button
-                type="button"
-                onClick={() => setPickerOpen(false)}
-                className="flex h-7 w-7 items-center justify-center rounded-lg text-[var(--ink-faint)] transition hover:bg-[var(--card-border)] hover:text-white"
-                aria-label="Close"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-            <p className="mb-4 text-[11px] leading-relaxed text-[var(--ink-faint)]">
-              Choose any EVM wallet that supports Injective EVM (chain 1439).
-            </p>
-
-            <div className="flex flex-col gap-2">
-              {connectors.length === 0 && (
-                <p className="rounded-lg border border-[var(--card-border)] px-3 py-3 text-center text-[11px] text-[var(--ink-faint)]">
-                  No browser wallet detected. Install MetaMask, Rabby, Rainbow,
-                  or another EVM wallet extension, then refresh.
-                </p>
-              )}
-              {connectors.map((c) => {
-                const meta = walletMeta(c);
-                return (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onClick={() => connectWith(c.id)}
-                    className="flex w-full items-center gap-3 rounded-xl border border-[var(--card-border)] bg-[var(--bg)] px-4 py-3 text-left transition-all duration-150 hover:border-[var(--violet)]/40 hover:bg-[var(--violet)]/5"
-                  >
-                    <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--card-border)]/40 text-lg">
-                      {meta.icon}
-                    </span>
-                    <span className="flex-1">
-                      <span className="block text-sm font-semibold text-white">
-                        {meta.label}
-                      </span>
-                      <span className="block text-[10px] text-[var(--ink-faint)]">
-                        {c.id === "injected"
-                          ? "Browser-injected wallet"
-                          : c.type === "injected"
-                            ? "EVM extension"
-                            : c.type || "wallet"}
-                      </span>
-                    </span>
-                    <span className="text-[var(--ink-faint)]">
-                      <ChevronDown className="h-4 w-4 rotate-[-90deg]" />
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
           </div>
         </>
       )}
