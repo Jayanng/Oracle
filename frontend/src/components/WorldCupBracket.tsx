@@ -116,36 +116,6 @@ function GroupCard({ group }: { group: GroupData }) {
   );
 }
 
-function BracketConnector({ className }: { className?: string }) {
-  return (
-    <svg
-      viewBox="0 0 40 60"
-      className={`h-full w-full ${className || ""}`}
-      fill="none"
-      preserveAspectRatio="none"
-    >
-      <path
-        d="M0 30 L30 30 L38 30"
-        stroke="#1E293B"
-        strokeWidth="1.5"
-        vectorEffect="non-scaling-stroke"
-      />
-      <path
-        d="M0 15 L15 15 L15 30"
-        stroke="#1E293B"
-        strokeWidth="1"
-        vectorEffect="non-scaling-stroke"
-      />
-      <path
-        d="M0 45 L15 45 L15 30"
-        stroke="#1E293B"
-        strokeWidth="1"
-        vectorEffect="non-scaling-stroke"
-      />
-    </svg>
-  );
-}
-
 function BracketStage({
   label,
   matches,

@@ -28,7 +28,7 @@ import {
   CHAIN_CONFIG,
 } from "@/lib/contracts";
 import { shortAddr } from "@/lib/utils";
-import { ensureInjectiveChain, isInjectiveChain } from "@/lib/ensureInjective";
+import { ensureInjectiveChain } from "@/lib/ensureInjective";
 import { TxModal, type TxStep } from "@/components/TxModal";
 import { INJECTIVE_EVM_CHAIN_ID, injRpc, injectiveEvmTestnet } from "@/lib/wagmi";
 import {
@@ -79,7 +79,6 @@ export default function DropsPage() {
     }
   }, [pub, address]);
   const { switchChainAsync } = useSwitchChain();
-  const onInjective = isInjectiveChain(chainId);
 
   const hasDrops = Boolean(DROPS_ADDRESS && DROPS_ADDRESS.length === 42);
   const hasTreasury = Boolean(TREASURY_ADDRESS && TREASURY_ADDRESS.length === 42);
@@ -235,7 +234,7 @@ export default function DropsPage() {
     query: { enabled: Boolean(hasTreasury && address), refetchInterval: 10_000 },
   });
 
-  const { data: eventCount, refetch: refetchEventCount } = useReadContract({
+  const { data: eventCount } = useReadContract({
     address: hasTreasury && address ? TREASURY_ADDRESS : undefined,
     abi: TREASURY_ABI,
     functionName: "feederEventCount",
