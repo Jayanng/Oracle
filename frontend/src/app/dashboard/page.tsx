@@ -156,13 +156,13 @@ export default function DashboardPage() {
       />
 
       {/* Stage filter bar */}
-      <div className="sticky top-0 z-30 mt-6 border-b border-[#1E293B] bg-[#0B0F19]/95 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-7xl items-center justify-between overflow-x-auto px-4 py-3">
+      <div className="sticky top-0 z-30 border-b border-[#1E293B] bg-[#0B0F19]/95 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-7xl items-center gap-1 overflow-x-auto px-3 py-2.5 sm:px-4 sm:py-3">
           {STAGES.map((s) => (
             <button
               key={s.key}
               onClick={() => { setStageKey(s.key); setSelectedKey(""); }}
-              className={`shrink-0 rounded-lg px-4 py-1.5 text-[11px] font-bold uppercase tracking-wider transition-all duration-200 ${
+              className={`shrink-0 rounded-lg px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-all duration-200 sm:px-4 ${
                 stageKey === s.key
                   ? "bg-[#4E46FF]/20 text-[#4E46FF] ring-1 ring-[#4E46FF]/30"
                   : "text-[#94A3B8] hover:text-white"
@@ -177,23 +177,23 @@ export default function DashboardPage() {
       {/* Match selector */}
       <div className="mx-auto max-w-7xl px-4 pt-4">
         {stageFixtures.length > 0 ? (
-          <div className="flex gap-2 overflow-x-auto pb-2">
+          <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none">
             {stageFixtures.map((fx) => {
               const isSelected = selected?.label === fx.label;
               return (
                 <button
                   key={fx.label}
                   onClick={() => setSelectedKey(fx.label)}
-                  className={`shrink-0 rounded-xl border px-4 py-2.5 text-left transition-all duration-200 ${
+                  className={`shrink-0 rounded-xl border px-3 py-2 text-left transition-all duration-200 sm:px-4 sm:py-2.5 ${
                     isSelected
                       ? "border-[#4E46FF]/50 bg-[#4E46FF]/10 ring-1 ring-[#4E46FF]/30"
                       : "border-[#1E293B] bg-[#0F172A]/60 hover:border-[#4E46FF]/20"
                   }`}
                 >
-                  <div className="flex items-center gap-2 text-sm font-medium text-white/90">
-                    <span>{fx.home}</span>
-                    <span className="text-[10px] text-[#4E46FF] font-bold">vs</span>
-                    <span>{fx.away}</span>
+                  <div className="flex items-center gap-1.5 text-xs font-medium text-white/90 sm:text-sm sm:gap-2">
+                    <span className="truncate max-w-[60px] sm:max-w-none">{fx.home}</span>
+                    <span className="shrink-0 text-[10px] text-[#4E46FF] font-bold">vs</span>
+                    <span className="truncate max-w-[60px] sm:max-w-none">{fx.away}</span>
                   </div>
                   <div className="mt-0.5 text-[10px] text-[#94A3B8]">
                     {fx.kickoffUtcLabel || fx.kickoffUtc || ""}
@@ -226,14 +226,14 @@ export default function DashboardPage() {
                   {selected ? statusLabel(selected.status) : "—"}
                 </span>
               </div>
-              <div className="flex flex-col items-center gap-4 py-4 sm:flex-row sm:justify-center sm:gap-12">
+              <div className="flex flex-col items-center gap-2 py-3 sm:py-4 sm:flex-row sm:justify-center sm:gap-8 lg:gap-12">
                 <div className="text-center">
-                  <div className="font-display text-xl font-semibold">
+                  <div className="font-display text-base font-semibold sm:text-lg lg:text-xl">
                     {selected?.home || "Home"}
                   </div>
                 </div>
                 <div className="text-center">
-                  <div className="font-display text-5xl font-bold tabular-nums text-[#4E46FF]">
+                  <div className="font-display text-3xl font-bold tabular-nums text-[#4E46FF] sm:text-4xl lg:text-5xl">
                     {scoreHome ?? "–"} : {scoreAway ?? "–"}
                   </div>
                   <div className="mt-1 max-w-xs text-xs text-ink-muted">
@@ -242,7 +242,7 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <div className="text-center">
-                  <div className="font-display text-xl font-semibold">
+                  <div className="font-display text-base font-semibold sm:text-lg lg:text-xl">
                     {selected?.away || "Away"}
                   </div>
                 </div>
@@ -257,9 +257,9 @@ export default function DashboardPage() {
                 ["Cards (on-chain)", cards],
                 ["Source", selected?.source || "—"],
               ].map(([k, v]) => (
-                <div key={k as string} className="card py-3 text-center">
-                  <div className="text-xs text-ink-muted">{k}</div>
-                  <div className="font-display text-lg font-semibold">{v}</div>
+                <div key={k as string} className="card py-2.5 text-center sm:py-3">
+                  <div className="text-[10px] text-ink-muted sm:text-xs">{k}</div>
+                  <div className="font-display text-base font-semibold sm:text-lg">{v}</div>
                 </div>
               ))}
             </div>

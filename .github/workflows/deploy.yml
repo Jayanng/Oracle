@@ -1,0 +1,59 @@
+name: Deploy
+
+on:
+  push:
+    branches: [Master]
+    paths:
+      - "frontend/**"
+      - "deploy.sh"
+      - ".github/workflows/deploy.yml"
+
+# ── Required GitHub Secrets ──────────────────────────────────────────────
+#   FLY_API_TOKEN                 Fly.io deploy token (generate via `fly tokens create deploy`)
+#   NEXT_PUBLIC_ORACLE_ADDRESS    Oracle contract address (0x...)
+#   NEXT_PUBLIC_DROPS_ADDRESS     FanDrops contract address (0x...)
+#   NEXT_PUBLIC_TREASURY_ADDRESS  OracleTreasury contract address (0x...)
+#
+# Optional overrides:
+#   NEXT_PUBLIC_USDC_ADDRESS           (default: 0x0C382e685bbeeFE5d3d9C29e29E341fEE8E84C5d)
+#   NEXT_PUBLIC_CCTP_TOKEN_MESSENGER   (default: 0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA)
+#   NEXT_PUBLIC_INJ_EVM_CHAIN_ID       (default: 1439)
+#   NEXT_PUBLIC_INJ_EVM_RPC            (default: https://k8s.testnet.json-rpc.injective.network)
+#   NEXT_PUBLIC_INJ_EVM_EXPLORER       (default: https://testnet.blockscout.injective.network)
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Validate required secrets
+        run: |
+          MISSING=""
+          [ -z "$ORACLE" ]      && MISSING="$MISSING NEXT_PUBLIC_ORACLE_ADDRESS"
+          [ -z "$DROPS" ]       && MISSING="$MISSING NEXT_PUBLIC_DROPS_ADDRESS"
+          [ -z "$TREASURY" ]    && MISSING="$MISSING NEXT_PUBLIC_TREASURY_ADDRESS"
+          if [ -n "$MISSING" ]; then
+            echo "::error::Missing required GitHub Secrets:$MISSING"
+            echo "::error::Set them in your repo: Settings → Secrets and variables → Actions"
+            exit 1
+          fi
+          echo "All required secrets present ✓"
+        env:
+          ORACLE:   ${{ secrets.NEXT_PUBLIC_ORACLE_ADDRESS }}
+          DROPS:    ${{ secrets.NEXT_PUBLIC_DROPS_ADDRESS }}
+          TREASURY: ${{ secrets.NEXT_PUBLIC_TREASURY_ADDRESS }}
+
+      - name: Deploy frontend to Fly.io
+        run: |
+          NEXT_PUBLIC_ORACLE_ADDRESS="${{ secrets.NEXT_PUBLIC_ORACLE_ADDRESS }}" \
+          NEXT_PUBLIC_DROPS_ADDRESS="${{ secrets.NEXT_PUBLIC_DROPS_ADDRESS }}" \
+          NEXT_PUBLIC_TREASURY_ADDRESS="${{ secrets.NEXT_PUBLIC_TREASURY_ADDRESS }}" \
+          NEXT_PUBLIC_USDC_ADDRESS="${{ secrets.NEXT_PUBLIC_USDC_ADDRESS }}" \
+          NEXT_PUBLIC_CCTP_TOKEN_MESSENGER="${{ secrets.NEXT_PUBLIC_CCTP_TOKEN_MESSENGER }}" \
+          ./deploy.sh frontend
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

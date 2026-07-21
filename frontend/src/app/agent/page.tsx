@@ -180,13 +180,12 @@ function AgentInner() {
         </div>
       </div>
 
-      {/* Content */}
-      <div className="mx-auto max-w-7xl px-4 pb-6 pt-4">
+      {/* Content */}        <div className="mx-auto max-w-7xl px-3 pb-6 pt-3 sm:px-4 sm:pt-4">
         <div className="grid gap-4 lg:grid-cols-3">
           {/* Chat card */}
-          <div className="card flex h-[calc(100vh-13rem)] flex-col p-0 lg:col-span-2">
+          <div className="card flex h-[60vh] flex-col p-0 sm:h-[calc(100vh-13rem)] lg:col-span-2">
             {/* Fixture + suggestion chips */}
-            <div className="border-b border-ink-border p-4">
+            <div className="border-b border-ink-border p-3 sm:p-4">
               {fixtures.length > 0 && (
                 <select
                   className="w-full rounded-lg border border-ink-border bg-ink px-3 py-2 text-xs text-white outline-none transition focus:border-cyan-accent"
@@ -201,13 +200,13 @@ function AgentInner() {
                   ))}
                 </select>
               )}
-              <div className="mt-2.5 flex flex-wrap gap-2">
+              <div className="mt-2.5 flex flex-wrap gap-1.5">
                 {chips.map((c) => (
                   <button
                     key={c}
                     type="button"
                     onClick={() => send(c)}
-                    className="rounded-full border border-ink-border px-3 py-1 text-[11px] text-ink-muted transition hover:border-cyan-accent/50 hover:text-cyan-accent"
+                    className="rounded-full border border-ink-border px-2.5 py-1 text-[10px] text-ink-muted transition hover:border-cyan-accent/50 hover:text-cyan-accent sm:px-3 sm:text-[11px]"
                   >
                     {c}
                   </button>
@@ -216,7 +215,7 @@ function AgentInner() {
             </div>
 
             {/* Messages */}
-            <div className="flex-1 space-y-3 overflow-y-auto p-4">
+            <div className="flex-1 space-y-3 overflow-y-auto p-3 sm:p-4">
               {messages.map((m, i) => (
                 <div
                   key={i}
@@ -255,7 +254,7 @@ function AgentInner() {
 
             {/* Composer */}
             <form
-              className="flex gap-2 border-t border-ink-border p-3"
+              className="flex gap-2 border-t border-ink-border p-2 sm:p-3"
               onSubmit={(e) => {
                 e.preventDefault();
                 send(input);
@@ -285,16 +284,16 @@ function AgentInner() {
           </div>
 
           {/* Activity card */}
-          <div className="card flex h-[calc(100vh-13rem)] flex-col p-0">
-            <div className="border-b border-ink-border p-4">
+          <div className="card flex h-[30vh] flex-col p-0 sm:h-[calc(100vh-13rem)]">
+            <div className="border-b border-ink-border p-3 sm:p-4">
               <h3 className="font-display text-sm font-semibold text-white">
                 Agent Action Log
               </h3>
-              <div className="text-[11px] text-ink-muted">
+              <div className="text-[10px] text-ink-muted sm:text-[11px]">
                 MCP tools · x402 · settle txs
               </div>
             </div>
-            <div className="flex-1 space-y-2 overflow-y-auto p-3">
+            <div className="flex-1 space-y-2 overflow-y-auto p-2 sm:p-3">
               {traceLog.length === 0 && (
                 <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
                   <Wrench className="h-6 w-6 text-ink-border" />

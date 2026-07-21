@@ -227,17 +227,17 @@ if (MODE === "official") {
         "GET /premium-stats": {
           description: "Premium World Cup match analytics — pay-per-request on Injective",
           mimeType: "application/json",
-          accepts: [{ network: NETWORK, asset: CIRCLE_USDC, amount: PRICE_STATS, payTo: RECEIVER, maxTimeoutSeconds: 120 }],
+          accepts: [{ network: NETWORK, asset: CIRCLE_USDC, amount: PRICE_STATS, payTo: RECEIVER, maxTimeoutSeconds: 900 }],
         },
         "GET /historical-events": {
           description: "Historical match events filtered by time range",
           mimeType: "application/json",
-          accepts: [{ network: NETWORK, asset: CIRCLE_USDC, amount: PRICE_HISTORICAL, payTo: RECEIVER, maxTimeoutSeconds: 120 }],
+          accepts: [{ network: NETWORK, asset: CIRCLE_USDC, amount: PRICE_HISTORICAL, payTo: RECEIVER, maxTimeoutSeconds: 900 }],
         },
         "GET /webhooks/subscribe": {
           description: "Subscribe to real-time webhook notifications for a match",
           mimeType: "application/json",
-          accepts: [{ network: NETWORK, asset: CIRCLE_USDC, amount: PRICE_WEBHOOK, payTo: RECEIVER, maxTimeoutSeconds: 120 }],
+          accepts: [{ network: NETWORK, asset: CIRCLE_USDC, amount: PRICE_WEBHOOK, payTo: RECEIVER, maxTimeoutSeconds: 900 }],
         },
       },
       middlewareOpts

@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
     const init: RequestInit = {
       method: "GET",
       headers: {},
-      signal: AbortSignal.timeout(60_000),
+      signal: AbortSignal.timeout(180_000), // 3 min — x402 on-chain settlement on Injective testnet can be slow
     };
     for (const h of ["PAYMENT-SIGNATURE", "X-PAYMENT"]) {
       const v = req.headers.get(h);

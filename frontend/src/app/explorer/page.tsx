@@ -58,25 +58,25 @@ export default function ExplorerPage() {
   });
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6 px-4 py-8">
+    <div className="mx-auto max-w-7xl space-y-4 px-3 py-6 sm:space-y-6 sm:px-4 sm:py-8">
       <div>
-        <h1 className="font-display text-3xl font-bold">Oracle Explorer</h1>
-        <p className="mt-1 text-ink-muted">
+        <h1 className="font-display text-2xl font-bold sm:text-3xl">Oracle Explorer</h1>
+        <p className="mt-1 text-xs text-ink-muted sm:text-sm">
           Inspect every on-chain event. Reusable by any dApp on Injective.
         </p>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search match / type / details"
-          className="rounded-lg border border-ink-border bg-ink-card px-3 py-2 text-sm outline-none focus:border-cyan-accent"
+          placeholder="Search events…"
+          className="min-w-0 flex-1 rounded-lg border border-ink-border bg-ink-card px-3 py-2 text-xs outline-none focus:border-cyan-accent sm:text-sm sm:min-w-[200px] sm:flex-none"
         />
         <select
           value={filterType}
           onChange={(e) => setFilterType(e.target.value)}
-          className="rounded-lg border border-ink-border bg-ink-card px-3 py-2 text-sm"
+          className="rounded-lg border border-ink-border bg-ink-card px-3 py-2 text-xs sm:text-sm"
         >
           <option value="all">All types</option>
           <option value="goal">Goals</option>
@@ -89,7 +89,7 @@ export default function ExplorerPage() {
             href={explorerAddress(ORACLE_ADDRESS)}
             target="_blank"
             rel="noreferrer"
-            className="text-sm text-cyan-accent"
+            className="text-xs text-cyan-accent sm:text-sm"
           >
             Contract {shortAddr(ORACLE_ADDRESS)}
           </a>
@@ -121,20 +121,20 @@ export default function ExplorerPage() {
 
       {/* Table */}
       <div className="overflow-x-auto rounded-xl border border-ink-border">
-        <table className="w-full min-w-[720px] text-left text-sm">
+        <table className="w-full min-w-[500px] text-left text-xs sm:min-w-[720px] sm:text-sm">
           <thead className="bg-ink-card text-ink-muted">
             <tr>
-              <th className="px-4 py-3">Match</th>
-              <th className="px-4 py-3">Min</th>
-              <th className="px-4 py-3">Type</th>
-              <th className="px-4 py-3">Details</th>
-              <th className="px-4 py-3">When</th>
+              <th className="px-3 py-2 sm:px-4 sm:py-3">Match</th>
+              <th className="px-3 py-2 sm:px-4 sm:py-3">Min</th>
+              <th className="px-3 py-2 sm:px-4 sm:py-3">Type</th>
+              <th className="px-3 py-2 sm:px-4 sm:py-3">Details</th>
+              <th className="hidden px-3 py-2 sm:table-cell sm:px-4 sm:py-3">When</th>
             </tr>
           </thead>
           <tbody>
             {list.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-10 text-center text-ink-muted">
+                <td colSpan={5} className="px-3 py-6 text-center text-xs text-ink-muted sm:px-4 sm:py-10 sm:text-sm">
                   No events. Deploy contracts + run feeder simulator.
                 </td>
               </tr>
@@ -145,15 +145,15 @@ export default function ExplorerPage() {
                 onClick={() => setDetail(e)}
                 className="cursor-pointer border-t border-ink-border hover:bg-ink-card/60"
               >
-                <td className="px-4 py-3 font-mono text-xs">{Number(e.matchId)}</td>
-                <td className="px-4 py-3">{e.minute}&apos;</td>
-                <td className="px-4 py-3">
+                <td className="px-3 py-2 font-mono text-[10px] sm:px-4 sm:py-3 sm:text-xs">{Number(e.matchId)}</td>
+                <td className="px-3 py-2 sm:px-4 sm:py-3">{e.minute}&apos;</td>
+                <td className="whitespace-nowrap px-3 py-2 sm:px-4 sm:py-3">
                   {eventIcon(e.eventType)} {e.eventType}
                 </td>
-                <td className="max-w-xs truncate px-4 py-3 font-mono text-xs text-ink-muted">
+                <td className="max-w-[100px] truncate px-3 py-2 font-mono text-[10px] text-ink-muted sm:max-w-xs sm:px-4 sm:py-3 sm:text-xs">
                   {e.details}
                 </td>
-                <td className="px-4 py-3 text-xs text-ink-muted">
+                <td className="hidden px-3 py-2 text-[10px] text-ink-muted sm:table-cell sm:px-4 sm:py-3 sm:text-xs">
                   {e.timestamp
                     ? new Date(Number(e.timestamp) * 1000).toLocaleString()
                     : "—"}
@@ -166,15 +166,15 @@ export default function ExplorerPage() {
 
       {/* Use this oracle */}
       <section className="card space-y-4">
-        <h2 className="font-display text-xl font-semibold">Use this oracle</h2>
-        <p className="text-sm text-ink-muted">
+        <h2 className="font-display text-lg font-semibold sm:text-xl">Use this oracle</h2>
+        <p className="text-xs text-ink-muted sm:text-sm">
           Any team can query CupEventOracle today. Complementary to Pyth / Chainlink
           price feeds — discrete, categorical real-world events.
         </p>
         <div className="grid gap-4 lg:grid-cols-2">
           <div>
             <div className="mb-2 text-xs font-medium text-cyan-accent">Solidity</div>
-            <pre className="overflow-x-auto rounded-lg bg-ink p-4 font-mono text-[11px] leading-relaxed text-ink-muted">{`interface ICupEventOracle {
+            <pre className="overflow-x-auto rounded-lg bg-ink p-3 font-mono text-[10px] leading-relaxed text-ink-muted sm:p-4 sm:text-[11px]">{`interface ICupEventOracle {
   function getLatestEvent(uint256 matchId)
     external view returns (
       uint256, uint64, uint32,
@@ -188,7 +188,7 @@ export default function ExplorerPage() {
           </div>
           <div>
             <div className="mb-2 text-xs font-medium text-cyan-accent">viem</div>
-            <pre className="overflow-x-auto rounded-lg bg-ink p-4 font-mono text-[11px] leading-relaxed text-ink-muted">{`const events = await publicClient.readContract({
+            <pre className="overflow-x-auto rounded-lg bg-ink p-3 font-mono text-[10px] leading-relaxed text-ink-muted sm:p-4 sm:text-[11px]">{`const events = await publicClient.readContract({
   address: ORACLE,
   abi: oracleAbi,
   functionName: "getEvents",

@@ -34,11 +34,11 @@ export default function LandingPage() {
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,_rgba(78,70,255,0.08),_transparent_60%)]" />
         <div className="relative mx-auto max-w-5xl px-4 text-center">
 
-          <h1 className="font-display text-5xl font-bold leading-tight tracking-tight sm:text-7xl md:text-8xl">
+          <h1 className="font-display text-3xl font-bold leading-tight tracking-tight sm:text-5xl md:text-6xl lg:text-8xl">
             Real-time World Cup events{" "}
             <span className="text-[#4E46FF]">on Injective.</span>
           </h1>
-          <p className="mx-auto mt-8 max-w-3xl text-base font-light leading-relaxed tracking-wide text-white/80 sm:text-lg md:text-xl">
+          <p className="mx-auto mt-6 max-w-3xl text-sm font-light leading-relaxed tracking-wide text-white/80 sm:text-base md:text-lg lg:text-xl">
             Bridging real-world sports to Injective EVM via AI agents that
             independently purchase premium analytics and settle cross-chain
             rewards
@@ -73,8 +73,8 @@ export default function LandingPage() {
 
 
       {/* How it works */}
-      <section className="mx-auto max-w-7xl px-4 py-20">
-        <h2 className="font-display text-2xl font-semibold sm:text-3xl">
+      <section className="mx-auto max-w-7xl px-4 py-16 sm:py-20">
+        <h2 className="font-display text-xl font-semibold sm:text-2xl md:text-3xl">
           How it works
         </h2>
         <div className="mt-8 grid gap-4 md:grid-cols-3">
@@ -111,9 +111,9 @@ export default function LandingPage() {
       </section>
 
       {/* Features */}
-      <section className="border-y border-ink-border bg-ink-card/30 py-20">
+      <section className="border-y border-ink-border bg-ink-card/30 py-16 sm:py-20">
         <div className="mx-auto max-w-7xl px-4">
-          <h2 className="font-display text-2xl font-semibold sm:text-3xl">
+          <h2 className="font-display text-xl font-semibold sm:text-2xl md:text-3xl">
             Built for builders
           </h2>
           <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

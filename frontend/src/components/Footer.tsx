@@ -28,7 +28,7 @@ export function Footer() {
           </div>
 
           {/* Link columns */}
-          <div className="grid grid-cols-3 gap-10">
+          <div className="grid grid-cols-1 gap-8 sm:grid-cols-3 sm:gap-10">
             {[
               {
                 title: "Product",
