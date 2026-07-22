@@ -138,7 +138,7 @@ export function Nav() {
           <img
             src="/header.png"
             alt="KICKOFF"
-            className="h-8 w-auto"
+            className="h-10 w-auto sm:h-10"
           />
         </Link>
 
