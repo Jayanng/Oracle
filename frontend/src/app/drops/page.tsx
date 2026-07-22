@@ -105,6 +105,7 @@ export default function DropsPage() {
   const [claimModal, setClaimModal] = useState<{ dropId: number; perWinnerAmount: bigint } | null>(null);
   const [claimDest, setClaimDest] = useState<number>(29); // Injective same-chain by default
 
+  const [dropsLoading, setDropsLoading] = useState(true); // initial contract read
   const [refreshKey, setRefreshKey] = useState(0);
   const [txFlow, setTxFlow] = useState<{ open: boolean; title: string; steps: TxStep[] }>({
     open: false,
@@ -113,13 +114,40 @@ export default function DropsPage() {
   });
 
   /** Stored once burn + attestation complete; user clicks Mint button to finish. */
-  const [pendingMint, setPendingMint] = useState<{
+  // Persisted in localStorage so cross-chain mints survive page navigations.
+  // The user may cancel the Sepolia mint (no ETH), and we don't want them
+  // to lose access to their funds. Read the persisted value on mount.
+  const [pendingMint, setPendingMintRaw] = useState<{
     message: `0x${string}`;
     attestation: `0x${string}`;
     domain: number;
     label: string;
     chainId: number;
+    dropId?: number;
   } | null>(null);
+  const setPendingMint = useCallback(
+    (val: typeof pendingMint) => {
+      setPendingMintRaw(val);
+      if (val) {
+        localStorage.setItem("pendingMint", JSON.stringify(val));
+      } else {
+        localStorage.removeItem("pendingMint");
+      }
+    },
+    []
+  );
+  // Recover pending mint from localStorage on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("pendingMint");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed?.message && parsed?.attestation) {
+          setPendingMintRaw(parsed);
+        }
+      }
+    } catch { /* ignore corrupt data */ }
+  }, []);
   const [mintBusy, setMintBusy] = useState(false);
   const [requestingDrop, setRequestingDrop] = useState<number | null>(null);
 
@@ -145,7 +173,9 @@ export default function DropsPage() {
 
   function closeTxFlow() {
     setTxFlow((p) => ({ ...p, open: false }));
-    setPendingMint(null);
+    // Deliberately keep pendingMint in state + localStorage so the user
+    // can retry a cross-chain mint later (even after closing the modal
+    // or navigating away). Only clear when the mint actually succeeds.
   }
 
   function appendTxStep(step: TxStep) {
@@ -160,12 +190,17 @@ export default function DropsPage() {
     });
   }
 
-  /** Shared mint handler — called via TxModal action button after cross-chain burn. */
+  /** Shared mint handler — called via TxModal action button or banner 'Mint' button. */
   async function handleMint() {
     const data = pendingMint;
     if (!data) return;
+    // Open the TxModal so the user sees progress (even when retrying from banner)
+    setTxFlow({
+      open: true,
+      title: `Mint USDC on ${data.label}`,
+      steps: [{ label: `Mint USDC on ${data.label}`, status: "pending", domain: data.domain }],
+    });
     setMintBusy(true);
-    appendTxStep({ label: `Mint USDC on ${data.label}`, status: "pending", domain: data.domain });
     try {
       try {
         if (switchChainAsync) await switchChainAsync({ chainId: data.chainId });
@@ -191,7 +226,7 @@ export default function DropsPage() {
         console.warn("Could not verify mint receipt:", e);
       }
       updateLastTxStep({ status: "confirmed" });
-      setPendingMint(null);
+      setPendingMint(null); // also clears localStorage
       refetchBalance();
     } catch (e) {
       updateLastTxStep({ status: "error" });
@@ -254,9 +289,14 @@ export default function DropsPage() {
 
   const hasFeederEarnings = feederEventCount > 0;
 
+  const [dropsError, setDropsError] = useState<string | null>(null);
+
   // Load active drop IDs by scanning from 0 to nextDropId
   useEffect(() => {
-    if (!hasDrops) return;
+    if (!hasDrops) {
+      setDropsLoading(false);
+      return;
+    }
     const load = async () => {
       try {
         const nextId = (await injPub.readContract({
@@ -267,22 +307,35 @@ export default function DropsPage() {
         const total = Number(nextId);
         const active: number[] = [];
         const matchIds: Record<number, number> = {};
+        // Read each drop individually — if one fails, skip it and continue
+        // rather than crashing the whole batch (which would leave the user
+        // staring at "No active drops" after the skeleton disappears).
         for (let i = 0; i < total; i++) {
-          const dropRaw = (await injPub.readContract({
-            address: DROPS_ADDRESS,
-            abi: FAN_DROPS_ABI,
-            functionName: "drops",
-            args: [BigInt(i)],
-          })) as unknown as [bigint, string, number, number, bigint, number, number, bigint, string, boolean];
-          if (dropRaw[9]) {
-            active.push(i); // active flag
-            matchIds[i] = Number(dropRaw[0]);
+          try {
+            const dropRaw = (await injPub.readContract({
+              address: DROPS_ADDRESS,
+              abi: FAN_DROPS_ABI,
+              functionName: "drops",
+              args: [BigInt(i)],
+            })) as unknown as [bigint, string, number, number, bigint, number, number, bigint, string, boolean];
+            if (dropRaw[9]) {
+              active.push(i);
+              matchIds[i] = Number(dropRaw[0]);
+            }
+          } catch {
+            // Individual drop read failed — skip it and keep going
           }
         }
         setActiveDropIds(active);
         setDropMatchIds(matchIds);
+        setDropsError(null);
+        setDropsLoading(false);
       } catch (e) {
         console.warn("Could not load drops:", e);
+        setDropsError(e instanceof Error ? e.message : "RPC error loading drops");
+        // Keep dropsLoading=true so skeleton stays visible — don't flicker
+        // to "No active drops" on transient RPC failures. The 20s interval
+        // will retry.
       }
     };
     load();
@@ -324,25 +377,21 @@ export default function DropsPage() {
     return () => clearInterval(t);
   }, [hasDrops, address, injPub, activeDropIds]);
 
-  // Show drops for upcoming/LIVE fixtures for discovery, PLUS any drop the
-  // connected wallet is eligible for or has claimed (even if the match is FT),
-  // so the pay → whitelist → claim flow always surfaces the right drop.
-  const visibleDropIds = useMemo(() => {
-    const showableStatuses = new Set(["NS", "LIVE", "HT", "1H", "2H", "ET", "P"]);
-    const byMatch = new Map<number, number>();
-    for (const dropId of activeDropIds) {
-      const matchId = dropMatchIds[dropId];
-      if (matchId === undefined) continue;
-      const fixture = fixtures.find((f) => f.id === matchId);
-      const isMine = eligibilityMap[dropId] || claimedMap[dropId];
-      // Always keep drops the user is involved in. Otherwise require an
-      // upcoming/LIVE status (when fixtures have loaded) for discovery.
-      if (!isMine && fixture && !showableStatuses.has(fixture.status)) continue;
-      const existing = byMatch.get(matchId);
-      if (existing === undefined || dropId > existing) byMatch.set(matchId, dropId);
-    }
-    return Array.from(byMatch.values()).sort((a, b) => a - b);
-  }, [activeDropIds, dropMatchIds, fixtures, eligibilityMap, claimedMap]);
+  // Show all unclaimed active drops. Once the user claims a drop (on-chain
+// confirmed), it disappears from the grid — no stale "Claimed" labels
+// cluttering the page.
+const visibleDropIds = useMemo(() => {
+  const byMatch = new Map<number, number>();
+  for (const dropId of activeDropIds) {
+    // Skip drops the user has already claimed — keep the page clean
+    if (claimedMap[dropId]) continue;
+    const matchId = dropMatchIds[dropId];
+    if (matchId === undefined) continue;
+    const existing = byMatch.get(matchId);
+    if (existing === undefined || dropId > existing) byMatch.set(matchId, dropId);
+  }
+  return Array.from(byMatch.values()).sort((a, b) => a - b);
+}, [activeDropIds, dropMatchIds, claimedMap]);
 
   // Actions
   async function handleClaim(dropId: number) {
@@ -414,12 +463,15 @@ export default function DropsPage() {
         updateLastTxStep({ status: "confirmed" });
 
         // Step 3: Store mint data — user clicks "Mint" action button in TxModal
+        // Persisted in localStorage so it survives page navigations (user may
+        // need to get Sepolia ETH for gas before they can mint).
         setPendingMint({
           message: attestationData.message as `0x${string}`,
           attestation: attestationData.attestation as `0x${string}`,
           domain: claimDest,
           label: destLabel,
           chainId: destConfig?.chainId ?? 11_155_111,
+          dropId,
         });
       }
       setClaimModal(null);
@@ -679,7 +731,64 @@ export default function DropsPage() {
       {/* Tab 1: Active Drops */}
       {tab === "drops" && (
         <div>
-          {visibleDropIds.length === 0 ? (
+          {/* Pending cross-chain mint banner — persists even after closing the modal */}
+          {pendingMint && (
+            <div className="mb-4 rounded-xl border border-amber-500/25 bg-amber-500/10 p-4">
+              <div className="flex items-start gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-500/20">
+                  <svg className="h-5 w-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <h4 className="text-sm font-semibold text-amber-300">Cross-chain claim pending</h4>
+                  <p className="mt-1 text-xs text-amber-200/80">
+                    Your USDC was burned on Injective and the attestation is ready.{" "}
+                    {pendingMint.dropId != null && <>Drop #{pendingMint.dropId}: </>}
+                    Switch to <strong>{pendingMint.label}</strong> and mint your USDC to complete the claim.
+                  </p>
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      className="rounded-lg bg-amber-500/20 px-3 py-1.5 text-xs font-medium text-amber-300 transition hover:bg-amber-500/30"
+                      onClick={handleMint}
+                      disabled={mintBusy}
+                    >
+                      {mintBusy ? "Minting…" : `Mint on ${pendingMint.label}`}
+                    </button>
+                    <button
+                      className="rounded-lg border border-ink-border/50 px-3 py-1.5 text-xs text-ink-muted transition hover:text-white"
+                      onClick={() => {
+                        setPendingMint(null);
+                        setRefreshKey((k) => k + 1);
+                      }}
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {dropsLoading ? (
+            <div className="space-y-4">
+              {dropsError && (
+                <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 p-4 text-center">
+                  <p className="text-sm text-amber-300">
+                    ⚠️ Could not load drops from chain: {dropsError}
+                  </p>
+                  <p className="mt-1 text-xs text-amber-200/70">
+                    Retrying automatically every 20 seconds…
+                  </p>
+                </div>
+              )}
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {[1, 2, 3, 4, 5, 6].map((i) => (
+                  <SkeletonCard key={i} />
+                ))}
+              </div>
+            </div>
+          ) : visibleDropIds.length === 0 ? (
             <div className="card py-12 text-center">
               <p className="text-ink-muted">No active drops yet. Sponsors can create drops in the &quot;Sponsor a Drop&quot; tab.</p>
             </div>
@@ -957,6 +1066,37 @@ export default function DropsPage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Skeleton card shown while drops are loading from the chain */
+function SkeletonCard() {
+  return (
+    <div className="card animate-pulse space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="h-3 w-16 rounded bg-ink-border" />
+        <div className="h-4 w-12 rounded-full bg-ink-border" />
+      </div>
+      <div className="space-y-2">
+        <div className="h-4 w-40 rounded bg-ink-border" />
+        <div className="h-3 w-32 rounded bg-ink-border/60" />
+      </div>
+      <div className="flex items-center justify-between">
+        <div className="h-3 w-16 rounded bg-ink-border" />
+        <div className="h-4 w-20 rounded bg-ink-border" />
+      </div>
+      <div className="space-y-1">
+        <div className="flex items-center justify-between">
+          <div className="h-3 w-24 rounded bg-ink-border" />
+          <div className="h-3 w-8 rounded bg-ink-border" />
+        </div>
+        <div className="h-2 rounded-full bg-ink-border" />
+      </div>
+      <div className="flex items-center justify-between">
+        <div className="h-3 w-20 rounded bg-ink-border" />
+        <div className="h-6 w-24 rounded-lg bg-ink-border" />
+      </div>
     </div>
   );
 }

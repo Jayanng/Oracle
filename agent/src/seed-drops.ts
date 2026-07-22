@@ -14,8 +14,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
 dotenv.config();
 
-const PER_WINNER_USDC = "0.10";  // 0.10 USDC per winner
-const MAX_WINNERS = 5;            // 5 winners per drop = 0.50 USDC per drop
+const PER_WINNER_USDC = "0.02";  // 0.02 USDC per winner per successful analysis
+const MAX_WINNERS = 5;            // 5 winners per drop = 0.10 USDC per drop
 const EVENT_TYPE = "goal";
 const MINUTE_FROM = 1;
 const MINUTE_TO = 120;

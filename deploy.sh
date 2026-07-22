@@ -38,7 +38,7 @@ set -euo pipefail
 #   OPENAI_API_KEY                 # Or other LLM provider key
 #   GROQ_API_KEY                  # Alternative LLM (preferred)
 #   AGENT_PRIVATE_KEY             # Private key for on-chain write tools
-#   AUTO_DROP_AMOUNT_USDC         # Per-winner USDC for auto-created drops (default 0.10)
+#   AUTO_DROP_AMOUNT_USDC         # Per-winner USDC for auto-created drops (default 0.02)
 #   AUTO_DROP_MAX_WINNERS         # Max winners for auto-created drops (default 20)
 #
 # ── Frontend runtime secrets ──────────────────────────────────────────────
@@ -95,7 +95,7 @@ set_secrets() {
 remind_feeder()   { section "Feeder secrets reminder";   echo "  If any secrets are still missing, set them:";  echo "  fly secrets set --app ${APP_FEEDER} \\";  echo "    SPORTS_API_KEY=\"your-key-here\" \\";  echo "    SPORTS_PROVIDER=\"hybrid\" \\";  echo "    SPORTS_SEASON=\"2026\" \\";  echo "    ORACLE_ADDRESS=\"0x...\" \\";  echo "    DROPS_ADDRESS=\"0x...\" \\";  echo "    TREASURY_ADDRESS=\"0x...\" \\";  echo "    FEEDER_PRIVATE_KEY=\"0x...\"";  echo ""; }
 remind_x402()     { section "x402 secrets reminder";     echo "  If any secrets are still missing, set them:";  echo "  fly secrets set --app ${APP_X402} \\";  echo "    X402_RECEIVER_ADDRESS=\"0x...\" \\";  echo "    X402_FACILITATOR_PRIVATE_KEY=\"0x...\" \\";  echo "    FEEDER_URL=\"${BASE_FEEDER}\" \\";  echo "    ORACLE_ADDRESS=\"0x...\" \\";  echo "    DROPS_ADDRESS=\"0x...\" \\";  echo "    TREASURY_ADDRESS=\"0x...\"";  echo ""; }
 remind_agent()    { section "Agent secrets reminder";    echo "  If any secrets are still missing, set them:";  echo "  fly secrets set --app ${APP_AGENT} \\";  echo "    OPENAI_API_KEY=\"sk-...\" \\";  echo "    GROQ_API_KEY=\"gsk-...\" \\";  echo "    FEEDER_URL=\"${BASE_FEEDER}\" \\";  echo "    X402_ENDPOINT_URL=\"${BASE_X402}\" \\";  echo "    ORACLE_ADDRESS=\"0x...\" \\";  echo "    DROPS_ADDRESS=\"0x...\" \\";  echo "    TREASURY_ADDRESS=\"0x...\" \\";  echo "    AGENT_PRIVATE_KEY=\"0x...\"";  echo ""; }
-remind_frontend() { section "Frontend secrets reminder"; echo "  If any secrets are still missing, set them:"; echo "  fly secrets set --app ${APP_FRONTEND} \\";  echo "    FEEDER_URL=\"${BASE_FEEDER}\" \\";  echo "    AGENT_URL=\"${BASE_AGENT}\" \\";  echo "    X402_ENDPOINT_URL=\"${BASE_X402}\"";  echo ""; }
+remind_frontend() { section "Frontend secrets reminder"; echo "  If any secrets are still missing, set them:"; echo "  fly secrets set --app ${APP_FRONTEND} \\";  echo "    FEEDER_URL=\"${BASE_FEEDER}\" \\";  echo "    AGENT_URL=\"${BASE_AGENT}\" \\";  echo "    X402_ENDPOINT_URL=\"http://${APP_X402}.internal:4021\"    # private Fly network (faster than public)";  echo ""; }
 
 # ── Deploy functions ───────────────────────────────────────────────────────
 
@@ -116,13 +116,17 @@ deploy_frontend() {
     --build-arg NEXT_PUBLIC_USDC_ADDRESS="${NEXT_PUBLIC_USDC_ADDRESS:-0x0C382e685bbeeFE5d3d9C29e29E341fEE8E84C5d}" \
     --build-arg NEXT_PUBLIC_CCTP_TOKEN_MESSENGER="${NEXT_PUBLIC_CCTP_TOKEN_MESSENGER:-0x8FE6B999Dc680CcFDD5Bf7EB0974218be2542DAA}" \
     .
-  # NOTE: X402_ENDPOINT_URL is hardcoded to BASE_X402 because the local
-  # .env often has http://localhost:4021/premium-stats which breaks the
-  # production proxy. The deploy script always knows the correct Fly URL.
+  # NOTE: X402_ENDPOINT_URL uses Fly.io private internal networking
+  # (http://<app>.internal:<port>) instead of the public HTTPS URL. This
+  # avoids TLS overhead and public-internet latency — critical because the
+  # @injectivelabs/x402 middleware's on-chain settlement (settlementPolicy:
+  # "before") blocks the response until the tx confirms on Injective testnet,
+  # and every millisecond counts. The local .env often has
+  # http://localhost:4021/premium-stats which breaks production.
   set_secrets "${APP_FRONTEND}" \
     FEEDER_URL           "${FEEDER_URL:-${BASE_FEEDER}}" \
     AGENT_URL            "${AGENT_URL:-${BASE_AGENT}}" \
-    X402_ENDPOINT_URL    "${BASE_X402}"
+    X402_ENDPOINT_URL    "http://${APP_X402}.internal:4021"
   remind_frontend
 }
 

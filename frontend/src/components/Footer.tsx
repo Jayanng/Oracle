@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { Trophy } from "lucide-react";
+
 
 export function Footer() {
   const path = usePathname();
@@ -14,13 +14,12 @@ export function Footer() {
         <div className="flex flex-col gap-10 md:flex-row md:justify-between">
           {/* Brand */}
           <div className="max-w-xs">
-            <div className="flex items-center gap-2.5">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--violet)]/10 ring-1 ring-[var(--violet)]/30">
-                <Trophy className="h-4 w-4 text-[var(--violet)]" />
-              </div>
-              <span className="text-sm font-bold tracking-wider text-white">
-                KICKOFF
-              </span>
+            <div className="flex items-center gap-2">
+              <img
+                src="/header.png"
+                alt="KICKOFF"
+                className="h-8 w-auto"
+              />
             </div>
             <p className="mt-3 text-xs text-[var(--ink-dim)] leading-relaxed">
               Real-world event oracle for Injective — live World Cup match events on-chain, exposed through an MCP-powered AI agent.

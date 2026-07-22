@@ -815,7 +815,7 @@ app.post("/api/whitelist", async (req, res) => {
           eventType: "goal",
           minuteFrom: 1,
           minuteTo: 120,
-          perWinnerAmountUsdc: process.env.AUTO_DROP_AMOUNT_USDC || "0.10",
+          perWinnerAmountUsdc: process.env.AUTO_DROP_AMOUNT_USDC || "0.02",
           maxWinners: Number(process.env.AUTO_DROP_MAX_WINNERS || "20"),
         });
         dropId = drop.dropId;

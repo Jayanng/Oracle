@@ -8,6 +8,10 @@ export const metadata: Metadata = {
   title: "KICKOFF — Real-world events on Injective",
   description:
     "On-chain event oracle + MCP agent for World Cup match events. x402 payments · CCTP drops · Injective EVM.",
+  icons: {
+    icon: "/header.png",
+    apple: "/header.png",
+  },
 };
 
 export default function RootLayout({

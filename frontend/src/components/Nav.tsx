@@ -15,7 +15,7 @@ import { toast } from "sonner";
 import { cn, shortAddr } from "@/lib/utils";
 import { ensureInjectiveChain, isInjectiveChain } from "@/lib/ensureInjective";
 import { INJECTIVE_EVM_CHAIN_ID } from "@/lib/wagmi";
-import { Menu, X, Trophy } from "lucide-react";
+import { Menu, X } from "lucide-react";
 
 const publicLinks: { href: string; label: string }[] = [];
 
@@ -134,13 +134,12 @@ export function Nav() {
     <header className="sticky top-0 z-50 border-b border-[var(--line)] bg-[var(--bg)]/95 backdrop-blur-xl">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
         {/* Logo */}
-        <Link href="/" className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--violet)]/10 ring-1 ring-[var(--violet)]/30">
-            <Trophy className="h-4 w-4 text-[var(--violet)]" />
-          </div>
-          <span className="text-sm font-bold tracking-wider text-white">
-            KICKOFF
-          </span>
+        <Link href="/" className="flex items-center gap-2">
+          <img
+            src="/header.png"
+            alt="KICKOFF"
+            className="h-8 w-auto"
+          />
         </Link>
 
         {/* Desktop nav */}
