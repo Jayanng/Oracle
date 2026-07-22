@@ -18,7 +18,7 @@ export function Footer() {
               <img
                 src="/header.png"
                 alt="KICKOFF"
-                className="h-10 w-auto sm:h-12"
+                className="h-12 w-auto sm:h-16"
               />
             </div>
             <p className="mt-3 text-xs text-[var(--ink-dim)] leading-relaxed">

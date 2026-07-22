@@ -377,21 +377,18 @@ export default function DropsPage() {
     return () => clearInterval(t);
   }, [hasDrops, address, injPub, activeDropIds]);
 
-  // Show all unclaimed active drops. Once the user claims a drop (on-chain
-// confirmed), it disappears from the grid — no stale "Claimed" labels
-// cluttering the page.
+  // Show all active drops. Already-claimed drops show a "Claimed" label
+// but remain visible so the user can see what they've already received.
 const visibleDropIds = useMemo(() => {
   const byMatch = new Map<number, number>();
   for (const dropId of activeDropIds) {
-    // Skip drops the user has already claimed — keep the page clean
-    if (claimedMap[dropId]) continue;
     const matchId = dropMatchIds[dropId];
     if (matchId === undefined) continue;
     const existing = byMatch.get(matchId);
     if (existing === undefined || dropId > existing) byMatch.set(matchId, dropId);
   }
   return Array.from(byMatch.values()).sort((a, b) => a - b);
-}, [activeDropIds, dropMatchIds, claimedMap]);
+}, [activeDropIds, dropMatchIds]);
 
   // Actions
   async function handleClaim(dropId: number) {
