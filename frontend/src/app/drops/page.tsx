@@ -38,6 +38,20 @@ import { motion } from "framer-motion";
 
 type Tab = "drops" | "sponsor" | "feeder";
 
+/** Raw `drops(uint256)` return tuple, in ABI order. */
+type DropTuple = readonly [
+  bigint,   // matchId
+  string,   // eventType
+  number,   // minuteFrom
+  number,   // minuteTo
+  bigint,   // perWinnerAmount
+  number,   // maxWinners
+  number,   // claimedCount
+  bigint,   // funded
+  string,   // sponsor
+  boolean   // active
+];
+
 export default function DropsPage() {
   const router = useRouter();
   const { address, isConnected } = useAccount();
@@ -100,6 +114,7 @@ export default function DropsPage() {
   // --- Tab 1: Active Drops ---
   const [activeDropIds, setActiveDropIds] = useState<number[]>([]);
   const [dropMatchIds, setDropMatchIds] = useState<Record<number, number>>({});
+  const [dropData, setDropData] = useState<Record<number, DropTuple>>({});
   const [eligibilityMap, setEligibilityMap] = useState<Record<number, boolean>>({});
   const [claimedMap, setClaimedMap] = useState<Record<number, boolean>>({});
   const [claimModal, setClaimModal] = useState<{ dropId: number; perWinnerAmount: bigint } | null>(null);
@@ -251,6 +266,7 @@ export default function DropsPage() {
 
   // USDC balance
   const { data: usdcBal, refetch: refetchBalance } = useReadContract({
+    chainId: INJECTIVE_EVM_CHAIN_ID,
     address: USDC_ADDRESS,
     abi: ERC20_ABI,
     functionName: "balanceOf",
@@ -260,6 +276,7 @@ export default function DropsPage() {
 
   // Feeder earnings
   const { data: earnedData, refetch: refetchEarnings } = useReadContract({
+    chainId: INJECTIVE_EVM_CHAIN_ID,
     address: hasTreasury && address ? TREASURY_ADDRESS : undefined,
     abi: TREASURY_ABI,
     functionName: "earnedBy",
@@ -268,6 +285,7 @@ export default function DropsPage() {
   });
 
   const { data: eventCount } = useReadContract({
+    chainId: INJECTIVE_EVM_CHAIN_ID,
     address: hasTreasury && address ? TREASURY_ADDRESS : undefined,
     abi: TREASURY_ABI,
     functionName: "feederEventCount",
@@ -276,6 +294,7 @@ export default function DropsPage() {
   });
 
   const { data: paidOut } = useReadContract({
+    chainId: INJECTIVE_EVM_CHAIN_ID,
     address: hasTreasury && address ? TREASURY_ADDRESS : undefined,
     abi: TREASURY_ABI,
     functionName: "feederPaidOut",
@@ -297,6 +316,7 @@ export default function DropsPage() {
       setDropsLoading(false);
       return;
     }
+    let cancelled = false;
     const load = async () => {
       try {
         const nextId = (await injPub.readContract({
@@ -305,32 +325,52 @@ export default function DropsPage() {
           functionName: "nextDropId",
         })) as bigint;
         const total = Number(nextId);
+
+        // Read every drop in parallel (one round-trip instead of a serial
+        // loop). A single failed read rejects its own promise; we capture that
+        // rather than letting it blank the whole list.
+        const settled = await Promise.all(
+          Array.from({ length: total }, (_, i) =>
+            injPub
+              .readContract({
+                address: DROPS_ADDRESS,
+                abi: FAN_DROPS_ABI,
+                functionName: "drops",
+                args: [BigInt(i)],
+              })
+              .then((raw) => ({ i, raw: raw as unknown as DropTuple }))
+              .catch(() => ({ i, raw: null }))
+          )
+        );
+        if (cancelled) return;
+
+        // If any individual read failed, this scan is incomplete — keep the
+        // previous state rather than overwriting it with a partial list (which
+        // is what made drops flicker / disappear on transient RPC hiccups).
+        if (settled.some((s) => s.raw === null)) {
+          setDropsError("Partial data from chain — retrying…");
+          setDropsLoading(false);
+          return;
+        }
+
         const active: number[] = [];
         const matchIds: Record<number, number> = {};
-        // Read each drop individually — if one fails, skip it and continue
-        // rather than crashing the whole batch (which would leave the user
-        // staring at "No active drops" after the skeleton disappears).
-        for (let i = 0; i < total; i++) {
-          try {
-            const dropRaw = (await injPub.readContract({
-              address: DROPS_ADDRESS,
-              abi: FAN_DROPS_ABI,
-              functionName: "drops",
-              args: [BigInt(i)],
-            })) as unknown as [bigint, string, number, number, bigint, number, number, bigint, string, boolean];
-            if (dropRaw[9]) {
-              active.push(i);
-              matchIds[i] = Number(dropRaw[0]);
-            }
-          } catch {
-            // Individual drop read failed — skip it and keep going
+        const data: Record<number, DropTuple> = {};
+        for (const { i, raw } of settled) {
+          if (!raw) continue;
+          data[i] = raw;
+          if (raw[9]) {
+            active.push(i);
+            matchIds[i] = Number(raw[0]);
           }
         }
         setActiveDropIds(active);
         setDropMatchIds(matchIds);
+        setDropData(data);
         setDropsError(null);
         setDropsLoading(false);
       } catch (e) {
+        if (cancelled) return;
         console.warn("Could not load drops:", e);
         setDropsError(e instanceof Error ? e.message : "RPC error loading drops");
         // Keep dropsLoading=true so skeleton stays visible — don't flicker
@@ -340,18 +380,20 @@ export default function DropsPage() {
     };
     load();
     const t = setInterval(load, 20_000);
-    return () => clearInterval(t);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
   }, [hasDrops, injPub, refreshKey]);
 
   // Check eligibility for each active drop
   useEffect(() => {
     if (!hasDrops || !address || activeDropIds.length === 0) return;
+    let cancelled = false;
     const check = async () => {
-      const eligMap: Record<number, boolean> = {};
-      const claimMap: Record<number, boolean> = {};
-      for (const id of activeDropIds) {
-        try {
-          const [e, c] = await Promise.all([
+      const results = await Promise.all(
+        activeDropIds.map((id) =>
+          Promise.all([
             injPub.readContract({
               address: DROPS_ADDRESS,
               abi: FAN_DROPS_ABI,
@@ -364,17 +406,32 @@ export default function DropsPage() {
               functionName: "claimed",
               args: [BigInt(id), address],
             }) as Promise<boolean>,
-          ]);
-          eligMap[id] = e;
-          claimMap[id] = c;
-        } catch { /* ignore */ }
-      }
-      setEligibilityMap(eligMap);
-      setClaimedMap(claimMap);
+          ])
+            .then(([e, c]) => ({ id, e, c }))
+            .catch(() => ({ id, e: null as boolean | null, c: null as boolean | null }))
+        )
+      );
+      if (cancelled) return;
+      // Merge into prior state — only overwrite entries we successfully read,
+      // so a transient failure can't flip a "Claim" button back to
+      // "Request Access".
+      setEligibilityMap((prev) => {
+        const next = { ...prev };
+        for (const { id, e } of results) if (e !== null) next[id] = e;
+        return next;
+      });
+      setClaimedMap((prev) => {
+        const next = { ...prev };
+        for (const { id, c } of results) if (c !== null) next[id] = c;
+        return next;
+      });
     };
     check();
     const t = setInterval(check, 15_000);
-    return () => clearInterval(t);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
   }, [hasDrops, address, injPub, activeDropIds]);
 
   // Show all active drops. Already-claimed drops show a "Claimed" label
@@ -394,6 +451,7 @@ const visibleDropIds = useMemo(() => {
   async function handleClaim(dropId: number) {
     if (!address || !DROPS_ADDRESS) return;
 
+    setClaimModal(null);
     const label = claimDest === 29 ? "Claim Drop" : "Cross-Chain Claim";
     setTxFlow({ open: true, title: label, steps: [{ label, status: "pending" }] });
     try {
@@ -440,6 +498,10 @@ const visibleDropIds = useMemo(() => {
         let attestationData: { message: string; attestation: string } | null = null;
         const maxPolls = 60;
         for (let attempt = 1; attempt <= maxPolls; attempt++) {
+          updateLastTxStep({
+            substatus: `Polling attestation ${attempt}/${maxPolls}`,
+            estimatedSeconds: (maxPolls - attempt) * 3,
+          });
           await new Promise((r) => setTimeout(r, 3000));
           try {
             const res = await fetch(
@@ -610,7 +672,12 @@ const visibleDropIds = useMemo(() => {
         // Step 2: Poll attestation
         appendTxStep({ label: `Waiting for Circle attestation…`, status: "pending" });
         let ad: { message: string; attestation: string } | null = null;
-        for (let attempt = 1; attempt <= 60; attempt++) {
+        const maxPolls = 60;
+        for (let attempt = 1; attempt <= maxPolls; attempt++) {
+          updateLastTxStep({
+            substatus: `Polling attestation ${attempt}/${maxPolls}`,
+            estimatedSeconds: (maxPolls - attempt) * 3,
+          });
           await new Promise((r) => setTimeout(r, 3000));
           try {
             const res = await fetch(`/api/cctp/attestation?txHash=${hash}&sourceDomain=29`);
@@ -795,6 +862,7 @@ const visibleDropIds = useMemo(() => {
                 <DropCard
                   key={dropId}
                   dropId={dropId}
+                  drop={dropData[dropId]}
                   fixtures={fixtures}
                   eligible={eligibilityMap[dropId] ?? false}
                   alreadyClaimed={claimedMap[dropId] ?? false}
@@ -1033,35 +1101,86 @@ const visibleDropIds = useMemo(() => {
         actionBusy={mintBusy}
       />
 
-      {/* Claim modal */}
+      {/* Claim destination modal */}
       {claimModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <div className="card w-full max-w-md space-y-4">
-            <h3 className="font-display font-semibold">Claim Drop #{claimModal.dropId}</h3>
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.96, y: 8 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+            className="card w-full max-w-md space-y-5"
+          >
+            <div className="flex items-center justify-between">
+              <h3 className="font-display font-semibold text-lg">Claim Drop</h3>
+              <button
+                onClick={() => setClaimModal(null)}
+                className="text-ink-muted hover:text-white text-xl leading-none"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div className="rounded-lg bg-cyan-accent/5 px-4 py-3 space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-ink-muted">Drop</span>
+                <span className="font-mono font-medium">#{claimModal.dropId}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-ink-muted">Reward</span>
+                <span className="font-semibold text-emerald-400">
+                  {(() => {
+                    const d = dropData[claimModal.dropId];
+                    return d ? `${(Number(d[4]) / 1e6).toFixed(2)} USDC` : "—";
+                  })()}
+                </span>
+              </div>
+            </div>
+
             <div>
-              <label className="mb-1 block text-xs text-ink-muted">Destination Chain</label>
+              <label className="mb-2 block text-xs text-ink-muted">Destination Chain</label>
               <select
                 value={claimDest}
                 onChange={(e) => setClaimDest(Number(e.target.value))}
-                className="w-full rounded-lg border border-ink-border bg-ink px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-ink-border bg-ink px-3 py-2.5 text-sm outline-none focus:border-cyan-accent transition-colors"
               >
                 {CCTP_DOMAINS.map((d) => (
                   <option key={d.domain} value={d.domain}>
-                    {d.label}
+                    {d.label} {d.domain === 29 ? "(same-chain, no extra gas)" : ""}
                   </option>
                 ))}
               </select>
+              {claimDest !== 29 && (
+                <p className="mt-1.5 text-xs text-amber-400/80 flex items-center gap-1.5">
+                  <svg className="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  You&apos;ll need gas on the destination chain to mint USDC
+                </p>
+              )}
             </div>
-            <div className="flex gap-2">
-              <button className="btn-ghost flex-1" disabled={txFlow.open} onClick={() => setClaimModal(null)}>
+
+            <div className="flex gap-3">
+              <button
+                className="btn-ghost flex-1"
+                disabled={txFlow.open}
+                onClick={() => setClaimModal(null)}
+              >
                 Cancel
               </button>
-              <button className="btn-primary flex-1" disabled={txFlow.open} onClick={() => handleClaim(claimModal.dropId)}>
+              <button
+                className="btn-primary flex-1"
+                disabled={txFlow.open}
+                onClick={() => handleClaim(claimModal.dropId)}
+              >
                 {txFlow.open ? "Processing…" : "Claim"}
               </button>
             </div>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       )}
     </div>
   );
@@ -1100,6 +1219,7 @@ function SkeletonCard() {
 
 function DropCard({
   dropId,
+  drop,
   fixtures,
   eligible,
   alreadyClaimed,
@@ -1108,6 +1228,7 @@ function DropCard({
   onRequestAccess,
 }: {
   dropId: number;
+  drop?: DropTuple;
   fixtures: PublicFixture[];
   eligible: boolean;
   alreadyClaimed: boolean;
@@ -1115,15 +1236,13 @@ function DropCard({
   onClaim: () => void;
   onRequestAccess?: () => void;
 }) {
-  const { data: raw } = useReadContract({
-    address: DROPS_ADDRESS || undefined,
-    abi: FAN_DROPS_ABI,
-    functionName: "drops",
-    args: [BigInt(dropId)],
-    query: { enabled: Boolean(DROPS_ADDRESS), refetchInterval: 15_000 },
-  });
-
-  const tuple = raw as readonly [bigint, string, number, number, bigint, number, number, bigint, string, boolean] | undefined;
+  // Drop data comes from the parent (read via the dedicated Injective client),
+  // so the card no longer does its own wallet-chain `drops` read. That read
+  // returned undefined whenever MetaMask was on another chain (e.g. after a
+  // cross-chain claim switches to Sepolia), causing `return null` below to make
+  // every card vanish. Reading from the parent keeps cards rendered regardless
+  // of the wallet's active chain.
+  const tuple = drop;
 
   const matchId = tuple ? Number(tuple[0]) : 0;
   const eventType = tuple ? tuple[1] : "";
@@ -1133,7 +1252,9 @@ function DropCard({
   // Read the match's oracle events to mirror the contract's _oracleMatches gate:
   // the claim only succeeds once a matching event (eventType + minute window)
   // has fired. Until then the Claim button stays disabled ("numb").
+  // Pinned to the Injective chain id so it doesn't follow the wallet's network.
   const { data: oracleEvents } = useReadContract({
+    chainId: INJECTIVE_EVM_CHAIN_ID,
     address: ORACLE_ADDRESS || undefined,
     abi: ORACLE_ABI,
     functionName: "getEvents",

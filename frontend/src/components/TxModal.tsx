@@ -10,6 +10,10 @@ export interface TxStep {
   txHash?: `0x${string}`;
   /** CCTP destination domain for per-chain explorer links. */
   domain?: number;
+  /** Optional substatus to show granular progress (e.g., "Polling attempt 12/60...") */
+  substatus?: string;
+  /** Estimated duration in seconds (shown as "~Xs remaining") */
+  estimatedSeconds?: number;
 }
 
 export function TxModal({
@@ -65,6 +69,21 @@ export function TxModal({
           )}
         </div>
 
+        {hasSteps && (
+          <div className="flex items-center justify-between text-xs text-ink-muted">
+            <span>Step {steps.filter((s) => s.status !== "pending").length + 1} of {steps.length}</span>
+            <div className="flex items-center gap-2">
+              <div className="h-1.5 w-20 rounded-full bg-ink-border overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-cyan-accent transition-all duration-500"
+                  style={{ width: `${(steps.filter((s) => s.status !== "pending").length / steps.length) * 100}%` }}
+                />
+              </div>
+              <span className="font-mono text-[11px]">{Math.round((steps.filter((s) => s.status !== "pending").length / steps.length) * 100)}%</span>
+            </div>
+          </div>
+        )}
+
         <div className="space-y-3">
           {!hasSteps && (
             <div className="flex items-center gap-3">
@@ -93,6 +112,17 @@ export function TxModal({
                 >
                   {step.label}
                 </div>
+                {step.substatus && step.status === "pending" && (
+                  <div className="mt-1 flex items-center gap-2 text-xs text-ink-muted">
+                    <span className="inline-block h-1 w-1 rounded-full bg-cyan-accent/50 animate-pulse" />
+                    <span>{step.substatus}</span>
+                    {step.estimatedSeconds != null && step.estimatedSeconds > 0 && (
+                      <span className="text-cyan-accent/70 font-mono">
+                        ~{step.estimatedSeconds}s
+                      </span>
+                    )}
+                  </div>
+                )}
                 {step.txHash && (
                   <a
                     href={explorerTx(step.txHash, step.domain)}
